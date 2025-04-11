@@ -703,7 +703,7 @@ const CalculationResults = ({ results }) => {
   const formatPercent = (value) => {
     if (value === undefined || value === null) return "0.00%";
     return `${value.toFixed(2)}%`;
-  };
+  };sadsadsadsadsadsadsadadasdas
 
   // Extract color values from theme
   const classAColor = theme.palette.primary.main;
