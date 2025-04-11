@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+
 # ABS Analysis Tool
 
 A web application for cash flow analysis in securitization, featuring calculation and optimization of ABS structures.
