@@ -38,6 +38,17 @@ class OptimizationProgress:
         self.last_update_time = time.time()
         self.lock = False  # Simple lock mechanism
         
+    def reset(self):
+        """Reset all progress tracking variables"""
+        self.current_step = 0
+        self.total_steps = 100
+        self.current_phase = "Initializing"
+        self.status_message = "Starting optimization..."
+        self.progress = 0
+        self.last_update_time = time.time()
+        self.lock = False  # Ensure lock is released
+        logger.info("Progress tracker reset")
+        
     def update(self, step=None, total=None, phase=None, message=None):
         """Update progress information with minimal state contention"""
         if self.lock:

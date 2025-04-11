@@ -17,30 +17,45 @@ const uploadFile = async (file) => {
   formData.append('file', file);
   
   try {
+    console.log('Uploading file:', file.name);
     const response = await axios.post(`${API_URL}/upload-excel/`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
     });
+    console.log('File upload successful');
     return response.data;
   } catch (error) {
     console.error('Error uploading file:', error);
+    if (error.response) {
+      console.error('Response status:', error.response.status);
+      console.error('Response data:', error.response.data);
+    }
     throw error;
   }
 };
 
 const calculateResults = async (params) => {
   try {
+    console.log('Calculating results with params:', params);
     const response = await apiClient.post('/calculate/', params);
+    console.log('Calculation successful');
     return response.data;
   } catch (error) {
     console.error('Error calculating results:', error);
+    if (error.response) {
+      console.error('Response status:', error.response.status);
+      console.error('Response data:', error.response.data);
+    }
     throw error;
   }
 };
 
 const optimizeStructure = async (params, method = 'classic') => {
   try {
+    console.log(`Starting optimization with method: ${method}`);
+    console.log('Optimization params:', JSON.stringify(params, null, 2));
+    
     // Create a cancelable request for optimization
     const CancelToken = axios.CancelToken;
     const source = CancelToken.source();
@@ -57,9 +72,10 @@ const optimizeStructure = async (params, method = 'classic') => {
     // Clear timeout
     clearTimeout(timeout);
     
+    console.log(`${method} optimization completed successfully`);
     return response.data;
   } catch (error) {
-    console.error('Error optimizing structure:', error);
+    console.error(`Error in ${method} optimization:`, error);
     
     // Check if error was caused by cancellation
     if (axios.isCancel(error)) {
@@ -67,8 +83,11 @@ const optimizeStructure = async (params, method = 'classic') => {
       throw new Error('Optimization process was canceled: ' + error.message);
     }
     
-    // Enhance error message based on HTTP status
+    // Log detailed response info if available
     if (error.response) {
+      console.error('Response status:', error.response.status);
+      console.error('Response data:', error.response.data);
+      
       const status = error.response.status;
       let message = 'Optimization failed';
       

@@ -1,4 +1,4 @@
-// OptimizationPage.js dosyasında başlık kısmında yeni buton eklemesi
+// frontend/src/pages/OptimizationPage.js
 import React, { useState, useEffect } from 'react';
 import { 
   Container, Typography, Box, Paper, Button, Alert, CircularProgress,
@@ -9,7 +9,7 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import SpeedIcon from '@mui/icons-material/Speed';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
-import RestartAltIcon from '@mui/icons-material/RestartAlt'; // New icon import
+import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import OptimizationSettingsForm from '../components/optimization/OptimizationSettingsForm';
 import OptimizationResults from '../components/optimization/OptimizationResults';
 import OptimizationProgress from '../components/optimization/OptimizationProgress';
@@ -62,6 +62,7 @@ const OptimizationPage = () => {
       
       // Selected optimization method
       const method = optimizationSettings.optimization_method;
+      console.log(`Starting ${method} optimization...`);
       
       // Prepare request parameters
       const params = {
@@ -74,11 +75,17 @@ const OptimizationPage = () => {
       };
       
       // API call based on method
-      const results = await optimizeStructure(params, method);
-      setOptimizationResults(results);
-      setActiveStep(2); // Move to results step
+      try {
+        const results = await optimizeStructure(params, method);
+        console.log("Optimization successful:", results);
+        setOptimizationResults(results);
+        setActiveStep(2); // Move to results step
+      } catch (optimizeError) {
+        console.error("Optimization error details:", optimizeError);
+        throw new Error(`Optimization failed: ${optimizeError.message}`);
+      }
     } catch (error) {
-      setError('Optimization failed. Please check your parameters and try again.');
+      setError('Optimization failed. Please check your parameters and try again. Error: ' + error.message);
       console.error('Optimization error:', error);
       setIsOptimizing(false); // Make sure to stop progress tracking on error
       setActiveStep(0); // Return to settings step
@@ -177,7 +184,7 @@ const OptimizationPage = () => {
             </Typography>
           </Box>
           
-          {/* New "Start Over" button */}
+          {/* "Start Over" button */}
           {(activeStep > 0 || optimizationResults) && (
             <Button 
               variant="outlined" 

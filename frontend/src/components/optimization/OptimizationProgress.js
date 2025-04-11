@@ -29,10 +29,12 @@ const OptimizationProgress = ({ isOptimizing, onComplete }) => {
   const [stuckDetected, setStuckDetected] = useState(false);
   const [lastProgressUpdate, setLastProgressUpdate] = useState(Date.now());
   const [lastProgressValue, setLastProgressValue] = useState(0);
+  const [errorOccurred, setErrorOccurred] = useState(false);
   
   // Start polling when optimization starts
   useEffect(() => {
     if (isOptimizing && !pollingActive) {
+      console.log("Starting optimization progress polling");
       setPollingActive(true);
       setProgress(0);
       setPhase('Initializing');
@@ -41,13 +43,16 @@ const OptimizationProgress = ({ isOptimizing, onComplete }) => {
       setStuckDetected(false);
       setLastProgressUpdate(Date.now());
       setLastProgressValue(0);
+      setErrorOccurred(false);
     } else if (!isOptimizing && pollingActive) {
+      console.log("Stopping optimization progress polling");
       setPollingActive(false);
     }
   }, [isOptimizing, pollingActive]);
   
   // Handle refresh button click
   const handleRefresh = () => {
+    console.log("Refreshing optimization progress");
     if (stuckDetected) {
       setStuckDetected(false);
       setPollCount(0);
@@ -63,8 +68,21 @@ const OptimizationProgress = ({ isOptimizing, onComplete }) => {
       // Poll every second
       intervalId = setInterval(async () => {
         try {
+          console.log("Polling optimization progress...");
           const response = await axios.get(`${API_URL}/optimize/progress/`);
           const data = response.data;
+          
+          console.log("Progress data:", data);
+          
+          // Check for error flag from backend
+          if (data.error) {
+            console.error("Error in optimization progress:", data.message);
+            setErrorOccurred(true);
+            setMessage(data.message || "Error in optimization process");
+            setPhase("Error");
+            // Don't update progress to indicate the error visually
+            return;
+          }
           
           // Check if progress has changed or message has changed
           const hasProgressChanged = data.progress !== progress;
@@ -87,11 +105,13 @@ const OptimizationProgress = ({ isOptimizing, onComplete }) => {
           // Check for stuck progress - if no change for 30 seconds
           const timeSinceUpdate = Date.now() - lastProgressUpdate;
           if (pollCount > 30 && timeSinceUpdate > 30000) {
+            console.log("Progress appears to be stuck");
             setStuckDetected(true);
           }
           
           // If progress is 100%, notify parent component
           if (data.progress >= 100) {
+            console.log("Optimization completed (progress 100%)");
             setPollingActive(false);
             if (onComplete) {
               onComplete();
@@ -103,6 +123,7 @@ const OptimizationProgress = ({ isOptimizing, onComplete }) => {
           
           // If we've had many errors, consider it stuck
           if (pollCount > 15) {
+            console.log("Multiple polling errors, considering progress stuck");
             setStuckDetected(true);
           }
         }
@@ -119,6 +140,7 @@ const OptimizationProgress = ({ isOptimizing, onComplete }) => {
   // Auto-complete if we've been at 100% for a while
   useEffect(() => {
     if (progress >= 100 && pollingActive) {
+      console.log("Progress is 100%, auto-completing after delay");
       const timeoutId = setTimeout(() => {
         setPollingActive(false);
         if (onComplete) {
@@ -136,7 +158,8 @@ const OptimizationProgress = ({ isOptimizing, onComplete }) => {
   
   // Calculate progress color
   const getProgressColor = () => {
-    if (stuckDetected) return theme.palette.error.main;
+    if (errorOccurred) return theme.palette.error.main;
+    if (stuckDetected) return theme.palette.warning.main;
     if (progress < 30) return theme.palette.info.main;
     if (progress < 70) return theme.palette.primary.main;
     return theme.palette.success.main;
@@ -144,7 +167,8 @@ const OptimizationProgress = ({ isOptimizing, onComplete }) => {
   
   // Progress icon
   const getProgressIcon = () => {
-    if (stuckDetected) return <SyncIcon color="error" />;
+    if (errorOccurred) return <SyncIcon color="error" />;
+    if (stuckDetected) return <SyncIcon color="warning" />;
     if (progress < 50) return <PendingIcon color="primary" />;
     return <SpeedIcon color="success" />;
   };
@@ -156,12 +180,16 @@ const OptimizationProgress = ({ isOptimizing, onComplete }) => {
         p: 3, 
         mb: 3, 
         borderRadius: 2,
-        border: stuckDetected 
+        border: errorOccurred 
           ? `1px solid ${alpha(theme.palette.error.main, 0.3)}`
-          : `1px solid ${alpha(theme.palette.primary.main, 0.2)}`,
-        backgroundColor: stuckDetected
+          : stuckDetected 
+            ? `1px solid ${alpha(theme.palette.warning.main, 0.3)}`
+            : `1px solid ${alpha(theme.palette.primary.main, 0.2)}`,
+        backgroundColor: errorOccurred
           ? alpha(theme.palette.error.main, 0.05)
-          : alpha(theme.palette.primary.main, 0.03)
+          : stuckDetected
+            ? alpha(theme.palette.warning.main, 0.05)
+            : alpha(theme.palette.primary.main, 0.03)
       }}
     >
       <Box sx={{ mb: 2 }}>
@@ -169,12 +197,16 @@ const OptimizationProgress = ({ isOptimizing, onComplete }) => {
           <Box sx={{ display: 'flex', alignItems: 'center' }}>
             {getProgressIcon()}
             <Typography variant="h6" sx={{ ml: 1 }}>
-              {stuckDetected ? 'Optimization Progress (Stuck)' : 'Optimization Progress'}
+              {errorOccurred 
+                ? 'Optimization Error' 
+                : stuckDetected 
+                  ? 'Optimization Progress (Stuck)' 
+                  : 'Optimization Progress'}
             </Typography>
           </Box>
           <Chip 
             label={phase} 
-            color={stuckDetected ? "error" : "primary"} 
+            color={errorOccurred ? "error" : stuckDetected ? "warning" : "primary"} 
             variant="outlined"
             size="small"
           />
@@ -205,17 +237,19 @@ const OptimizationProgress = ({ isOptimizing, onComplete }) => {
       
       <Box sx={{ mt: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Typography variant="body2" color="text.secondary">
-          {stuckDetected 
-            ? "Optimization might be stuck. The server is still processing, but progress updates have stopped." 
-            : progress === 100 
-              ? "Optimization completed successfully." 
-              : "Please wait while the optimization is in progress..."}
+          {errorOccurred 
+            ? "An error occurred during optimization. Please try again with different parameters."
+            : stuckDetected 
+              ? "Optimization might be stuck. The server is still processing, but progress updates have stopped." 
+              : progress === 100 
+                ? "Optimization completed successfully." 
+                : "Please wait while the optimization is in progress..."}
         </Typography>
         
-        {stuckDetected && (
+        {(stuckDetected || errorOccurred) && (
           <Button 
             variant="outlined" 
-            color="error" 
+            color={errorOccurred ? "error" : "warning"} 
             size="small" 
             startIcon={<RefreshIcon />}
             onClick={handleRefresh}

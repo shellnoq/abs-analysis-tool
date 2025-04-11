@@ -1,5 +1,7 @@
 # backend/app/routers/optimization.py
 import time
+import traceback
+import logging
 from fastapi.responses import JSONResponse
 from fastapi import APIRouter, HTTPException, Path
 from app.models.input_models import OptimizationSettings, GeneralSettings
@@ -14,6 +16,9 @@ from app.services.optimization_service import (
     perform_genetic_optimization
 )
 from app.routers.calculation import df_store  # Import the shared dataframe store
+
+# Configure logger
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -43,6 +48,10 @@ async def get_optimization_progress():
         
         return JSONResponse(content=progress_info)
     except Exception as e:
+        # Log the error
+        logger.error(f"Error retrieving optimization progress: {str(e)}")
+        logger.error(traceback.format_exc())
+        
         # Return an error status that the frontend can handle
         error_response = {
             "error": True,
@@ -59,16 +68,36 @@ async def optimize_classic(
     general_settings: GeneralSettings
 ):
     try:
+        # Reset progress tracker
+        optimization_progress.reset()
+        
         # Get the stored dataframe
         df = df_store.get("df")
         if df is None:
             raise HTTPException(status_code=400, detail="No data found. Please upload Excel file first.")
         
+        # Log the request
+        logger.info(f"Starting classic optimization with parameters: {optimization_settings}")
+        
         # Perform the optimization with classic method
         result = perform_optimization(df, general_settings, optimization_settings)
+        
+        # Log success
+        logger.info("Classic optimization completed successfully")
         return result
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Classic optimization error: {str(e)}")
+        # Log the error
+        logger.error(f"Classic optimization error: {str(e)}")
+        logger.error(traceback.format_exc())
+        
+        # Reset progress tracker in case of error
+        optimization_progress.reset()
+        optimization_progress.update(
+            phase="Error",
+            message=f"Classic optimization error: {str(e)}"
+        )
+        
+        raise HTTPException(status_code=500, detail=f"Classic optimization error: {str(e)}")
 
 @router.post("/optimize/gradient/", response_model=OptimizationResult)
 async def optimize_gradient(
@@ -76,14 +105,34 @@ async def optimize_gradient(
     general_settings: GeneralSettings
 ):
     try:
+        # Reset progress tracker
+        optimization_progress.reset()
+        
         df = df_store.get("df")
         if df is None:
             raise HTTPException(status_code=400, detail="No data found. Please upload Excel file first.")
         
+        # Log the request
+        logger.info(f"Starting gradient optimization with parameters: {optimization_settings}")
+        
         result = perform_gradient_optimization(df, general_settings, optimization_settings)
+        
+        # Log success
+        logger.info("Gradient optimization completed successfully")
         return result
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Gradient optimization error: {str(e)}")
+        # Log the error
+        logger.error(f"Gradient optimization error: {str(e)}")
+        logger.error(traceback.format_exc())
+        
+        # Reset progress tracker in case of error
+        optimization_progress.reset()
+        optimization_progress.update(
+            phase="Error",
+            message=f"Gradient optimization error: {str(e)}"
+        )
+        
+        raise HTTPException(status_code=500, detail=f"Gradient optimization error: {str(e)}")
 
 @router.post("/optimize/bayesian/", response_model=OptimizationResult)
 async def optimize_bayesian(
@@ -91,14 +140,34 @@ async def optimize_bayesian(
     general_settings: GeneralSettings
 ):
     try:
+        # Reset progress tracker
+        optimization_progress.reset()
+        
         df = df_store.get("df")
         if df is None:
             raise HTTPException(status_code=400, detail="No data found. Please upload Excel file first.")
         
+        # Log the request
+        logger.info(f"Starting bayesian optimization with parameters: {optimization_settings}")
+        
         result = perform_bayesian_optimization(df, general_settings, optimization_settings)
+        
+        # Log success
+        logger.info("Bayesian optimization completed successfully")
         return result
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Bayesian optimization error: {str(e)}")
+        # Log the error
+        logger.error(f"Bayesian optimization error: {str(e)}")
+        logger.error(traceback.format_exc())
+        
+        # Reset progress tracker in case of error
+        optimization_progress.reset()
+        optimization_progress.update(
+            phase="Error",
+            message=f"Bayesian optimization error: {str(e)}"
+        )
+        
+        raise HTTPException(status_code=500, detail=f"Bayesian optimization error: {str(e)}")
 
 @router.post("/optimize/genetic/", response_model=OptimizationResult)
 async def optimize_genetic(
@@ -106,14 +175,34 @@ async def optimize_genetic(
     general_settings: GeneralSettings
 ):
     try:
+        # Reset progress tracker
+        optimization_progress.reset()
+        
         df = df_store.get("df")
         if df is None:
             raise HTTPException(status_code=400, detail="No data found. Please upload Excel file first.")
         
+        # Log the request
+        logger.info(f"Starting genetic optimization with parameters: {optimization_settings}")
+        
         result = perform_genetic_optimization(df, general_settings, optimization_settings)
+        
+        # Log success
+        logger.info("Genetic optimization completed successfully")
         return result
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Genetic optimization error: {str(e)}")
+        # Log the error
+        logger.error(f"Genetic optimization error: {str(e)}")
+        logger.error(traceback.format_exc())
+        
+        # Reset progress tracker in case of error
+        optimization_progress.reset()
+        optimization_progress.update(
+            phase="Error",
+            message=f"Genetic optimization error: {str(e)}"
+        )
+        
+        raise HTTPException(status_code=500, detail=f"Genetic optimization error: {str(e)}")
 
 # Backward compatibility için ana endpoint
 @router.post("/optimize/", response_model=OptimizationResult)
@@ -122,13 +211,20 @@ async def optimize(
     general_settings: GeneralSettings
 ):
     method = getattr(optimization_settings, "optimization_method", "classic")
-    if method == "classic":
-        return await optimize_classic(optimization_settings, general_settings)
-    elif method == "gradient":
-        return await optimize_gradient(optimization_settings, general_settings)
-    elif method == "bayesian":
-        return await optimize_bayesian(optimization_settings, general_settings)
-    elif method == "genetic":
-        return await optimize_genetic(optimization_settings, general_settings)
-    else:
-        raise HTTPException(status_code=400, detail=f"Unknown optimization method: {method}")
+    logger.info(f"Optimizing with method: {method}")
+    
+    try:
+        if method == "classic":
+            return await optimize_classic(optimization_settings, general_settings)
+        elif method == "gradient":
+            return await optimize_gradient(optimization_settings, general_settings)
+        elif method == "bayesian":
+            return await optimize_bayesian(optimization_settings, general_settings)
+        elif method == "genetic":
+            return await optimize_genetic(optimization_settings, general_settings)
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown optimization method: {method}")
+    except Exception as e:
+        logger.error(f"Error in main optimize endpoint: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Optimization error: {str(e)}")
