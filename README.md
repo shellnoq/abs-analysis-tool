@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # ABS Analysis Tool
 
 A web application for cash flow analysis in securitization, featuring calculation and optimization of ABS structures.
@@ -143,3 +144,7 @@ The application will automatically calculate `cash_flow` as the sum of principal
 ## License
 
 This project is licensed under the MIT License.
+=======
+# abs-analysis-tool
+Advanced ABS Desing
+>>>>>>> 686ed8028f000d387db1c9fd2336fbcfe8a2b280
