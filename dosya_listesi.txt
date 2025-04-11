@@ -703,7 +703,7 @@ const CalculationResults = ({ results }) => {
   const formatPercent = (value) => {
     if (value === undefined || value === null) return "0.00%";
     return `${value.toFixed(2)}%`;
-  };sadsadsadsadsadsadsadadasdas
+  };
 
   // Extract color values from theme
   const classAColor = theme.palette.primary.main;
@@ -1756,10 +1756,12 @@ const OptimizationProgress = ({ isOptimizing, onComplete }) => {
   const [stuckDetected, setStuckDetected] = useState(false);
   const [lastProgressUpdate, setLastProgressUpdate] = useState(Date.now());
   const [lastProgressValue, setLastProgressValue] = useState(0);
+  const [errorOccurred, setErrorOccurred] = useState(false);
   
   // Start polling when optimization starts
   useEffect(() => {
     if (isOptimizing && !pollingActive) {
+      console.log("Starting optimization progress polling");
       setPollingActive(true);
       setProgress(0);
       setPhase('Initializing');
@@ -1768,13 +1770,16 @@ const OptimizationProgress = ({ isOptimizing, onComplete }) => {
       setStuckDetected(false);
       setLastProgressUpdate(Date.now());
       setLastProgressValue(0);
+      setErrorOccurred(false);
     } else if (!isOptimizing && pollingActive) {
+      console.log("Stopping optimization progress polling");
       setPollingActive(false);
     }
   }, [isOptimizing, pollingActive]);
   
   // Handle refresh button click
   const handleRefresh = () => {
+    console.log("Refreshing optimization progress");
     if (stuckDetected) {
       setStuckDetected(false);
       setPollCount(0);
@@ -1790,8 +1795,21 @@ const OptimizationProgress = ({ isOptimizing, onComplete }) => {
       // Poll every second
       intervalId = setInterval(async () => {
         try {
+          console.log("Polling optimization progress...");
           const response = await axios.get(`${API_URL}/optimize/progress/`);
           const data = response.data;
+          
+          console.log("Progress data:", data);
+          
+          // Check for error flag from backend
+          if (data.error) {
+            console.error("Error in optimization progress:", data.message);
+            setErrorOccurred(true);
+            setMessage(data.message || "Error in optimization process");
+            setPhase("Error");
+            // Don't update progress to indicate the error visually
+            return;
+          }
           
           // Check if progress has changed or message has changed
           const hasProgressChanged = data.progress !== progress;
@@ -1814,11 +1832,13 @@ const OptimizationProgress = ({ isOptimizing, onComplete }) => {
           // Check for stuck progress - if no change for 30 seconds
           const timeSinceUpdate = Date.now() - lastProgressUpdate;
           if (pollCount > 30 && timeSinceUpdate > 30000) {
+            console.log("Progress appears to be stuck");
             setStuckDetected(true);
           }
           
           // If progress is 100%, notify parent component
           if (data.progress >= 100) {
+            console.log("Optimization completed (progress 100%)");
             setPollingActive(false);
             if (onComplete) {
               onComplete();
@@ -1830,6 +1850,7 @@ const OptimizationProgress = ({ isOptimizing, onComplete }) => {
           
           // If we've had many errors, consider it stuck
           if (pollCount > 15) {
+            console.log("Multiple polling errors, considering progress stuck");
             setStuckDetected(true);
           }
         }
@@ -1846,6 +1867,7 @@ const OptimizationProgress = ({ isOptimizing, onComplete }) => {
   // Auto-complete if we've been at 100% for a while
   useEffect(() => {
     if (progress >= 100 && pollingActive) {
+      console.log("Progress is 100%, auto-completing after delay");
       const timeoutId = setTimeout(() => {
         setPollingActive(false);
         if (onComplete) {
@@ -1863,7 +1885,8 @@ const OptimizationProgress = ({ isOptimizing, onComplete }) => {
   
   // Calculate progress color
   const getProgressColor = () => {
-    if (stuckDetected) return theme.palette.error.main;
+    if (errorOccurred) return theme.palette.error.main;
+    if (stuckDetected) return theme.palette.warning.main;
     if (progress < 30) return theme.palette.info.main;
     if (progress < 70) return theme.palette.primary.main;
     return theme.palette.success.main;
@@ -1871,7 +1894,8 @@ const OptimizationProgress = ({ isOptimizing, onComplete }) => {
   
   // Progress icon
   const getProgressIcon = () => {
-    if (stuckDetected) return <SyncIcon color="error" />;
+    if (errorOccurred) return <SyncIcon color="error" />;
+    if (stuckDetected) return <SyncIcon color="warning" />;
     if (progress < 50) return <PendingIcon color="primary" />;
     return <SpeedIcon color="success" />;
   };
@@ -1883,12 +1907,16 @@ const OptimizationProgress = ({ isOptimizing, onComplete }) => {
         p: 3, 
         mb: 3, 
         borderRadius: 2,
-        border: stuckDetected 
+        border: errorOccurred 
           ? `1px solid ${alpha(theme.palette.error.main, 0.3)}`
-          : `1px solid ${alpha(theme.palette.primary.main, 0.2)}`,
-        backgroundColor: stuckDetected
+          : stuckDetected 
+            ? `1px solid ${alpha(theme.palette.warning.main, 0.3)}`
+            : `1px solid ${alpha(theme.palette.primary.main, 0.2)}`,
+        backgroundColor: errorOccurred
           ? alpha(theme.palette.error.main, 0.05)
-          : alpha(theme.palette.primary.main, 0.03)
+          : stuckDetected
+            ? alpha(theme.palette.warning.main, 0.05)
+            : alpha(theme.palette.primary.main, 0.03)
       }}
     >
       <Box sx={{ mb: 2 }}>
@@ -1896,12 +1924,16 @@ const OptimizationProgress = ({ isOptimizing, onComplete }) => {
           <Box sx={{ display: 'flex', alignItems: 'center' }}>
             {getProgressIcon()}
             <Typography variant="h6" sx={{ ml: 1 }}>
-              {stuckDetected ? 'Optimization Progress (Stuck)' : 'Optimization Progress'}
+              {errorOccurred 
+                ? 'Optimization Error' 
+                : stuckDetected 
+                  ? 'Optimization Progress (Stuck)' 
+                  : 'Optimization Progress'}
             </Typography>
           </Box>
           <Chip 
             label={phase} 
-            color={stuckDetected ? "error" : "primary"} 
+            color={errorOccurred ? "error" : stuckDetected ? "warning" : "primary"} 
             variant="outlined"
             size="small"
           />
@@ -1932,17 +1964,19 @@ const OptimizationProgress = ({ isOptimizing, onComplete }) => {
       
       <Box sx={{ mt: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Typography variant="body2" color="text.secondary">
-          {stuckDetected 
-            ? "Optimization might be stuck. The server is still processing, but progress updates have stopped." 
-            : progress === 100 
-              ? "Optimization completed successfully." 
-              : "Please wait while the optimization is in progress..."}
+          {errorOccurred 
+            ? "An error occurred during optimization. Please try again with different parameters."
+            : stuckDetected 
+              ? "Optimization might be stuck. The server is still processing, but progress updates have stopped." 
+              : progress === 100 
+                ? "Optimization completed successfully." 
+                : "Please wait while the optimization is in progress..."}
         </Typography>
         
-        {stuckDetected && (
+        {(stuckDetected || errorOccurred) && (
           <Button 
             variant="outlined" 
-            color="error" 
+            color={errorOccurred ? "error" : "warning"} 
             size="small" 
             startIcon={<RefreshIcon />}
             onClick={handleRefresh}
@@ -5601,7 +5635,7 @@ export default HomePage;
 
 DOSYA: src\pages\OptimizationPage.js
 ==================================================
-// OptimizationPage.js dosyasında başlık kısmında yeni buton eklemesi
+// frontend/src/pages/OptimizationPage.js
 import React, { useState, useEffect } from 'react';
 import { 
   Container, Typography, Box, Paper, Button, Alert, CircularProgress,
@@ -5612,7 +5646,7 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import SpeedIcon from '@mui/icons-material/Speed';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
-import RestartAltIcon from '@mui/icons-material/RestartAlt'; // New icon import
+import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import OptimizationSettingsForm from '../components/optimization/OptimizationSettingsForm';
 import OptimizationResults from '../components/optimization/OptimizationResults';
 import OptimizationProgress from '../components/optimization/OptimizationProgress';
@@ -5665,6 +5699,7 @@ const OptimizationPage = () => {
       
       // Selected optimization method
       const method = optimizationSettings.optimization_method;
+      console.log(`Starting ${method} optimization...`);
       
       // Prepare request parameters
       const params = {
@@ -5677,11 +5712,17 @@ const OptimizationPage = () => {
       };
       
       // API call based on method
-      const results = await optimizeStructure(params, method);
-      setOptimizationResults(results);
-      setActiveStep(2); // Move to results step
+      try {
+        const results = await optimizeStructure(params, method);
+        console.log("Optimization successful:", results);
+        setOptimizationResults(results);
+        setActiveStep(2); // Move to results step
+      } catch (optimizeError) {
+        console.error("Optimization error details:", optimizeError);
+        throw new Error(`Optimization failed: ${optimizeError.message}`);
+      }
     } catch (error) {
-      setError('Optimization failed. Please check your parameters and try again.');
+      setError('Optimization failed. Please check your parameters and try again. Error: ' + error.message);
       console.error('Optimization error:', error);
       setIsOptimizing(false); // Make sure to stop progress tracking on error
       setActiveStep(0); // Return to settings step
@@ -5780,7 +5821,7 @@ const OptimizationPage = () => {
             </Typography>
           </Box>
           
-          {/* New "Start Over" button */}
+          {/* "Start Over" button */}
           {(activeStep > 0 || optimizationResults) && (
             <Button 
               variant="outlined" 
@@ -5948,30 +5989,45 @@ const uploadFile = async (file) => {
   formData.append('file', file);
   
   try {
+    console.log('Uploading file:', file.name);
     const response = await axios.post(`${API_URL}/upload-excel/`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
     });
+    console.log('File upload successful');
     return response.data;
   } catch (error) {
     console.error('Error uploading file:', error);
+    if (error.response) {
+      console.error('Response status:', error.response.status);
+      console.error('Response data:', error.response.data);
+    }
     throw error;
   }
 };
 
 const calculateResults = async (params) => {
   try {
+    console.log('Calculating results with params:', params);
     const response = await apiClient.post('/calculate/', params);
+    console.log('Calculation successful');
     return response.data;
   } catch (error) {
     console.error('Error calculating results:', error);
+    if (error.response) {
+      console.error('Response status:', error.response.status);
+      console.error('Response data:', error.response.data);
+    }
     throw error;
   }
 };
 
 const optimizeStructure = async (params, method = 'classic') => {
   try {
+    console.log(`Starting optimization with method: ${method}`);
+    console.log('Optimization params:', JSON.stringify(params, null, 2));
+    
     // Create a cancelable request for optimization
     const CancelToken = axios.CancelToken;
     const source = CancelToken.source();
@@ -5988,9 +6044,10 @@ const optimizeStructure = async (params, method = 'classic') => {
     // Clear timeout
     clearTimeout(timeout);
     
+    console.log(`${method} optimization completed successfully`);
     return response.data;
   } catch (error) {
-    console.error('Error optimizing structure:', error);
+    console.error(`Error in ${method} optimization:`, error);
     
     // Check if error was caused by cancellation
     if (axios.isCancel(error)) {
@@ -5998,8 +6055,11 @@ const optimizeStructure = async (params, method = 'classic') => {
       throw new Error('Optimization process was canceled: ' + error.message);
     }
     
-    // Enhance error message based on HTTP status
+    // Log detailed response info if available
     if (error.response) {
+      console.error('Response status:', error.response.status);
+      console.error('Response data:', error.response.data);
+      
       const status = error.response.status;
       let message = 'Optimization failed';
       
@@ -6278,6 +6338,8 @@ DOSYA: backend\app\routers\optimization.py
 ==================================================
 # backend/app/routers/optimization.py
 import time
+import traceback
+import logging
 from fastapi.responses import JSONResponse
 from fastapi import APIRouter, HTTPException, Path
 from app.models.input_models import OptimizationSettings, GeneralSettings
@@ -6292,6 +6354,9 @@ from app.services.optimization_service import (
     perform_genetic_optimization
 )
 from app.routers.calculation import df_store  # Import the shared dataframe store
+
+# Configure logger
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -6321,6 +6386,10 @@ async def get_optimization_progress():
         
         return JSONResponse(content=progress_info)
     except Exception as e:
+        # Log the error
+        logger.error(f"Error retrieving optimization progress: {str(e)}")
+        logger.error(traceback.format_exc())
+        
         # Return an error status that the frontend can handle
         error_response = {
             "error": True,
@@ -6337,16 +6406,36 @@ async def optimize_classic(
     general_settings: GeneralSettings
 ):
     try:
+        # Reset progress tracker
+        optimization_progress.reset()
+        
         # Get the stored dataframe
         df = df_store.get("df")
         if df is None:
             raise HTTPException(status_code=400, detail="No data found. Please upload Excel file first.")
         
+        # Log the request
+        logger.info(f"Starting classic optimization with parameters: {optimization_settings}")
+        
         # Perform the optimization with classic method
         result = perform_optimization(df, general_settings, optimization_settings)
+        
+        # Log success
+        logger.info("Classic optimization completed successfully")
         return result
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Classic optimization error: {str(e)}")
+        # Log the error
+        logger.error(f"Classic optimization error: {str(e)}")
+        logger.error(traceback.format_exc())
+        
+        # Reset progress tracker in case of error
+        optimization_progress.reset()
+        optimization_progress.update(
+            phase="Error",
+            message=f"Classic optimization error: {str(e)}"
+        )
+        
+        raise HTTPException(status_code=500, detail=f"Classic optimization error: {str(e)}")
 
 @router.post("/optimize/gradient/", response_model=OptimizationResult)
 async def optimize_gradient(
@@ -6354,14 +6443,34 @@ async def optimize_gradient(
     general_settings: GeneralSettings
 ):
     try:
+        # Reset progress tracker
+        optimization_progress.reset()
+        
         df = df_store.get("df")
         if df is None:
             raise HTTPException(status_code=400, detail="No data found. Please upload Excel file first.")
         
+        # Log the request
+        logger.info(f"Starting gradient optimization with parameters: {optimization_settings}")
+        
         result = perform_gradient_optimization(df, general_settings, optimization_settings)
+        
+        # Log success
+        logger.info("Gradient optimization completed successfully")
         return result
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Gradient optimization error: {str(e)}")
+        # Log the error
+        logger.error(f"Gradient optimization error: {str(e)}")
+        logger.error(traceback.format_exc())
+        
+        # Reset progress tracker in case of error
+        optimization_progress.reset()
+        optimization_progress.update(
+            phase="Error",
+            message=f"Gradient optimization error: {str(e)}"
+        )
+        
+        raise HTTPException(status_code=500, detail=f"Gradient optimization error: {str(e)}")
 
 @router.post("/optimize/bayesian/", response_model=OptimizationResult)
 async def optimize_bayesian(
@@ -6369,14 +6478,34 @@ async def optimize_bayesian(
     general_settings: GeneralSettings
 ):
     try:
+        # Reset progress tracker
+        optimization_progress.reset()
+        
         df = df_store.get("df")
         if df is None:
             raise HTTPException(status_code=400, detail="No data found. Please upload Excel file first.")
         
+        # Log the request
+        logger.info(f"Starting bayesian optimization with parameters: {optimization_settings}")
+        
         result = perform_bayesian_optimization(df, general_settings, optimization_settings)
+        
+        # Log success
+        logger.info("Bayesian optimization completed successfully")
         return result
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Bayesian optimization error: {str(e)}")
+        # Log the error
+        logger.error(f"Bayesian optimization error: {str(e)}")
+        logger.error(traceback.format_exc())
+        
+        # Reset progress tracker in case of error
+        optimization_progress.reset()
+        optimization_progress.update(
+            phase="Error",
+            message=f"Bayesian optimization error: {str(e)}"
+        )
+        
+        raise HTTPException(status_code=500, detail=f"Bayesian optimization error: {str(e)}")
 
 @router.post("/optimize/genetic/", response_model=OptimizationResult)
 async def optimize_genetic(
@@ -6384,14 +6513,34 @@ async def optimize_genetic(
     general_settings: GeneralSettings
 ):
     try:
+        # Reset progress tracker
+        optimization_progress.reset()
+        
         df = df_store.get("df")
         if df is None:
             raise HTTPException(status_code=400, detail="No data found. Please upload Excel file first.")
         
+        # Log the request
+        logger.info(f"Starting genetic optimization with parameters: {optimization_settings}")
+        
         result = perform_genetic_optimization(df, general_settings, optimization_settings)
+        
+        # Log success
+        logger.info("Genetic optimization completed successfully")
         return result
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Genetic optimization error: {str(e)}")
+        # Log the error
+        logger.error(f"Genetic optimization error: {str(e)}")
+        logger.error(traceback.format_exc())
+        
+        # Reset progress tracker in case of error
+        optimization_progress.reset()
+        optimization_progress.update(
+            phase="Error",
+            message=f"Genetic optimization error: {str(e)}"
+        )
+        
+        raise HTTPException(status_code=500, detail=f"Genetic optimization error: {str(e)}")
 
 # Backward compatibility için ana endpoint
 @router.post("/optimize/", response_model=OptimizationResult)
@@ -6400,16 +6549,23 @@ async def optimize(
     general_settings: GeneralSettings
 ):
     method = getattr(optimization_settings, "optimization_method", "classic")
-    if method == "classic":
-        return await optimize_classic(optimization_settings, general_settings)
-    elif method == "gradient":
-        return await optimize_gradient(optimization_settings, general_settings)
-    elif method == "bayesian":
-        return await optimize_bayesian(optimization_settings, general_settings)
-    elif method == "genetic":
-        return await optimize_genetic(optimization_settings, general_settings)
-    else:
-        raise HTTPException(status_code=400, detail=f"Unknown optimization method: {method}")
+    logger.info(f"Optimizing with method: {method}")
+    
+    try:
+        if method == "classic":
+            return await optimize_classic(optimization_settings, general_settings)
+        elif method == "gradient":
+            return await optimize_gradient(optimization_settings, general_settings)
+        elif method == "bayesian":
+            return await optimize_bayesian(optimization_settings, general_settings)
+        elif method == "genetic":
+            return await optimize_genetic(optimization_settings, general_settings)
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown optimization method: {method}")
+    except Exception as e:
+        logger.error(f"Error in main optimize endpoint: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Optimization error: {str(e)}")
 
 ======================================================================
 
@@ -6712,6 +6868,17 @@ class OptimizationProgress:
         self.progress = 0
         self.last_update_time = time.time()
         self.lock = False  # Simple lock mechanism
+        
+    def reset(self):
+        """Reset all progress tracking variables"""
+        self.current_step = 0
+        self.total_steps = 100
+        self.current_phase = "Initializing"
+        self.status_message = "Starting optimization..."
+        self.progress = 0
+        self.last_update_time = time.time()
+        self.lock = False  # Ensure lock is released
+        logger.info("Progress tracker reset")
         
     def update(self, step=None, total=None, phase=None, message=None):
         """Update progress information with minimal state contention"""
