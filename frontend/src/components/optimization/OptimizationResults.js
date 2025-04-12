@@ -1,5 +1,5 @@
-// frontend/src/components/optimization/OptimizationResults.js
-import React, { useState, useEffect } from 'react';
+// src/components/optimization/OptimizationResults.js
+import React, { useState } from 'react';
 import { 
   Box, 
   Typography, 
@@ -11,12 +11,7 @@ import {
   TableContainer, 
   TableHead, 
   TableRow,
-  Divider,
   Chip,
-  Grid,
-  Card,
-  CardContent,
-  alpha,
   useTheme,
   Snackbar,
   Alert
@@ -33,34 +28,38 @@ import { useData } from '../../contexts/DataContext';
 import { useNavigate } from 'react-router-dom';
 import { calculateResults } from '../../services/apiService';
 
+// Convert numbers to Roman numerals
+const toRoman = (num) => {
+  if (isNaN(num) || num < 1 || num > 3999) {
+    return num.toString(); // Return the number as string if not a valid input
+  }
+  
+  const romanNumerals = {
+    M: 1000, CM: 900, D: 500, CD: 400,
+    C: 100, XC: 90, L: 50, XL: 40,
+    X: 10, IX: 9, V: 5, IV: 4, I: 1
+  };
+  
+  let result = '';
+  
+  for (let key in romanNumerals) {
+    while (num >= romanNumerals[key]) {
+      result += key;
+      num -= romanNumerals[key];
+    }
+  }
+  
+  return result;
+};
+
 // Strategy name mapping
 const strategyNames = {
   equal: "Equal Distribution",
   increasing: "Increasing by Maturity",
   decreasing: "Decreasing by Maturity",
-  middle_weighted: "Middle Tranches Weighted",
-  classic: "Classic Strategy",
-  genetic: "Genetic Algorithm"
-};
-
-// Helper function to convert number to Roman numeral
-const toRoman = (num) => {
-  const romanNumerals = [
-    { value: 10, symbol: 'X' },
-    { value: 9, symbol: 'IX' },
-    { value: 5, symbol: 'V' },
-    { value: 4, symbol: 'IV' },
-    { value: 1, symbol: 'I' }
-  ];
-  
-  let roman = '';
-  for (let i = 0; i < romanNumerals.length; i++) {
-    while (num >= romanNumerals[i].value) {
-      roman += romanNumerals[i].symbol;
-      num -= romanNumerals[i].value;
-    }
-  }
-  return roman;
+  middle_weighted: "Middle-Weighted",
+  classic: "Standard Optimization",
+  genetic: "Evolutionary Algorithm"
 };
 
 const OptimizationResults = ({ results }) => {
@@ -78,7 +77,6 @@ const OptimizationResults = ({ results }) => {
     createCalculationRequest,
     setCalculationResults,
     setMultipleComparisonResults,
-    multipleComparisonResults
   } = useData();
   
   const [snackbarOpen, setSnackbarOpen] = useState(false);

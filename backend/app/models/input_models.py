@@ -1,4 +1,3 @@
-# backend/app/models/input_models.py
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import date
@@ -27,6 +26,7 @@ class NPVSettings(BaseModel):
 
 class OptimizationSettings(BaseModel):
     optimization_method: str = Field(default="classic")
+    selected_strategies: List[str] = Field(default=["equal", "increasing", "decreasing", "middle_weighted"])
     a_tranches_range: List[int] = Field(default=[2, 6])
     maturity_range: List[int] = Field(default=[32, 365])
     maturity_step: int = Field(default=10)
@@ -34,17 +34,9 @@ class OptimizationSettings(BaseModel):
     target_class_b_coupon_rate: float = Field(default=30.0)
     additional_days_for_class_b: int = Field(default=10)
     
-    # Gradient descent için
-    learning_rate: Optional[float] = Field(default=0.01)
-    max_iterations: Optional[int] = Field(default=100)
-    
-    # Genetik algoritma için
+    # Evolutionary algorithm parameters
     population_size: Optional[int] = Field(default=50)
     num_generations: Optional[int] = Field(default=40)
-    
-    # Bayesian için
-    n_calls: Optional[int] = Field(default=50)
-    n_initial_points: Optional[int] = Field(default=10)
 
 class CalculationRequest(BaseModel):
     general_settings: GeneralSettings

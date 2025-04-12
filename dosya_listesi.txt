@@ -2009,12 +2009,7 @@ import {
   TableContainer, 
   TableHead, 
   TableRow,
-  Divider,
   Chip,
-  Grid,
-  Card,
-  CardContent,
-  alpha,
   useTheme,
   Snackbar,
   Alert
@@ -2031,35 +2026,40 @@ import { useData } from '../../contexts/DataContext';
 import { useNavigate } from 'react-router-dom';
 import { calculateResults } from '../../services/apiService';
 
+// Convert numbers to Roman numerals
+const toRoman = (num) => {
+  if (isNaN(num) || num < 1 || num > 3999) {
+    return num.toString(); // Return the number as string if not a valid input
+  }
+  
+  const romanNumerals = {
+    M: 1000, CM: 900, D: 500, CD: 400,
+    C: 100, XC: 90, L: 50, XL: 40,
+    X: 10, IX: 9, V: 5, IV: 4, I: 1
+  };
+  
+  let result = '';
+  
+  for (let key in romanNumerals) {
+    while (num >= romanNumerals[key]) {
+      result += key;
+      num -= romanNumerals[key];
+    }
+  }
+  
+  return result;
+};
+
 // Strategy name mapping
 const strategyNames = {
   equal: "Equal Distribution",
   increasing: "Increasing by Maturity",
   decreasing: "Decreasing by Maturity",
-  middle_weighted: "Middle Tranches Weighted",
-  classic: "Classic Strategy",
-  genetic: "Genetic Algorithm"
+  middle_weighted: "Middle-Weighted",
+  classic: "Standard Optimization",
+  genetic: "Evolutionary Algorithm"
 };
 
-// Helper function to convert number to Roman numeral
-const toRoman = (num) => {
-  const romanNumerals = [
-    { value: 10, symbol: 'X' },
-    { value: 9, symbol: 'IX' },
-    { value: 5, symbol: 'V' },
-    { value: 4, symbol: 'IV' },
-    { value: 1, symbol: 'I' }
-  ];
-  
-  let roman = '';
-  for (let i = 0; i < romanNumerals.length; i++) {
-    while (num >= romanNumerals[i].value) {
-      roman += romanNumerals[i].symbol;
-      num -= romanNumerals[i].value;
-    }
-  }
-  return roman;
-};
 
 const OptimizationResults = ({ results }) => {
   const theme = useTheme();
@@ -2076,7 +2076,6 @@ const OptimizationResults = ({ results }) => {
     createCalculationRequest,
     setCalculationResults,
     setMultipleComparisonResults,
-    multipleComparisonResults
   } = useData();
   
   const [snackbarOpen, setSnackbarOpen] = useState(false);
@@ -2729,7 +2728,7 @@ export default OptimizationResults;
 DOSYA: src\components\optimization\OptimizationSettingsForm.js
 ==================================================
 // src/components/optimization/OptimizationSettingsForm.js
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Box, 
   Typography, 
@@ -2742,27 +2741,59 @@ import {
   RadioGroup,
   Radio,
   FormControlLabel,
+  ToggleButton,
+  ToggleButtonGroup,
   Tooltip,
   IconButton,
+  alpha,
+  useTheme,
   Divider,
   Grid,
   Card,
   CardContent,
-  alpha,
-  useTheme
+  Switch,
+  FormGroup,
+  Checkbox
 } from '@mui/material';
 import InfoIcon from '@mui/icons-material/Info';
-import SpeedIcon from '@mui/icons-material/Speed';
 import TuneIcon from '@mui/icons-material/Tune';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
+import BalanceIcon from '@mui/icons-material/Balance';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import TrendingDownIcon from '@mui/icons-material/TrendingDown';
+import EqualizerIcon from '@mui/icons-material/Equalizer';
+import SpeedIcon from '@mui/icons-material/Speed';
 
 const OptimizationSettingsForm = ({ values, onChange }) => {
   const theme = useTheme();
   const [optimizationMethod, setOptimizationMethod] = useState(values.optimization_method || 'classic');
+  const [selectedStrategies, setSelectedStrategies] = useState(values.selected_strategies || ['equal', 'increasing', 'decreasing', 'middle_weighted']);
+
+  useEffect(() => {
+    // Initialize selected strategies from props if available
+    if (values.selected_strategies && values.selected_strategies.length > 0) {
+      setSelectedStrategies(values.selected_strategies);
+    }
+  }, [values.selected_strategies]);
 
   const handleOptimizationMethodChange = (event) => {
-    setOptimizationMethod(event.target.value);
-    onChange({ ...values, optimization_method: event.target.value });
+    const newMethod = event.target.value;
+    setOptimizationMethod(newMethod);
+    onChange({ 
+      ...values, 
+      optimization_method: newMethod 
+    });
+  };
+
+  const handleStrategiesChange = (event, newStrategies) => {
+    // Ensure at least one strategy is selected
+    if (newStrategies.length === 0) return;
+    
+    setSelectedStrategies(newStrategies);
+    onChange({ 
+      ...values, 
+      selected_strategies: newStrategies 
+    });
   };
 
   const handleSliderChange = (field) => (event, newValue) => {
@@ -2776,28 +2807,57 @@ const OptimizationSettingsForm = ({ values, onChange }) => {
     onChange({ ...values, [field]: value });
   };
 
-  // Method info details - only for Classic and Genetic
+  // Method info details
   const methodInfo = {
     classic: {
-      title: "Classic Strategies",
+      title: "Standard Optimization Strategies",
       icon: <TuneIcon sx={{ fontSize: 36, color: theme.palette.primary.main }} />,
-      description: "Compares Equal, Increasing, Decreasing, and Middle-Weighted distribution strategies",
+      description: "Apply one or more traditional distribution strategies to optimize your tranche structure",
       color: theme.palette.primary.main
     },
     genetic: {
-      title: "Genetic Algorithm",
+      title: "Evolutionary Algorithm",
       icon: <AccountTreeIcon sx={{ fontSize: 36, color: theme.palette.warning.main }} />,
-      description: "Effective in large solution spaces with evolutionary search",
+      description: "Uses advanced genetic algorithms to intelligently search for optimal structures",
       color: theme.palette.warning.main
+    }
+  };
+
+  // Strategy info
+  const strategyInfo = {
+    equal: {
+      title: "Equal Distribution",
+      icon: <BalanceIcon />,
+      description: "Allocates equal nominal amounts across all tranches",
+      color: theme.palette.primary.main
+    },
+    increasing: {
+      title: "Increasing by Maturity",
+      icon: <TrendingUpIcon />,
+      description: "Higher allocations for longer maturity tranches",
+      color: theme.palette.success.main
+    },
+    decreasing: {
+      title: "Decreasing by Maturity",
+      icon: <TrendingDownIcon />,
+      description: "Higher allocations for shorter maturity tranches",
+      color: theme.palette.error.main
+    },
+    middle_weighted: {
+      title: "Middle-Weighted",
+      icon: <EqualizerIcon />,
+      description: "Higher allocations for middle maturity tranches",
+      color: theme.palette.info.main
     }
   };
 
   return (
     <Box>
       <Typography variant="subtitle1" gutterBottom fontWeight="medium" sx={{ mb: 3 }}>
-        Select an optimization method and configure parameters to find the optimal tranche structure
+        Select an optimization method and configure parameters to find the optimal structure for your asset-backed securities
       </Typography>
       
+      {/* Method Selection */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
         {Object.keys(methodInfo).map((method) => (
           <Grid item xs={12} sm={6} key={method}>
@@ -2853,7 +2913,94 @@ const OptimizationSettingsForm = ({ values, onChange }) => {
         ))}
       </Grid>
 
-      <Divider sx={{ my: 4 }} />
+      {/* Strategy Selection for Classic Method */}
+      {optimizationMethod === 'classic' && (
+        <Box sx={{ mb: 4, p: 3, backgroundColor: alpha(theme.palette.primary.light, 0.05), borderRadius: 2, border: `1px solid ${alpha(theme.palette.primary.main, 0.1)}` }}>
+          <Typography variant="h6" gutterBottom color="primary.main" sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+            <TuneIcon sx={{ mr: 1 }} /> Select Optimization Strategies
+            <Tooltip title="Select one or more strategies to include in the optimization process. The system will determine which strategy produces the best results." sx={{ ml: 1 }}>
+              <IconButton size="small">
+                <InfoIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Typography>
+          
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Select the strategies you want to include in the optimization process. The system will evaluate all selected strategies and identify the one that produces the best results.
+          </Typography>
+          
+          <Grid container spacing={2}>
+            {Object.keys(strategyInfo).map((strategy) => (
+              <Grid item xs={12} sm={6} md={3} key={strategy}>
+                <Paper 
+                  elevation={0}
+                  sx={{
+                    p: 2,
+                    border: `1px solid ${selectedStrategies.includes(strategy) 
+                      ? alpha(strategyInfo[strategy].color, 0.5) 
+                      : alpha(theme.palette.text.primary, 0.1)}`,
+                    backgroundColor: selectedStrategies.includes(strategy) 
+                      ? alpha(strategyInfo[strategy].color, 0.1)
+                      : 'transparent',
+                    borderRadius: 2,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    height: '100%',
+                    '&:hover': {
+                      borderColor: alpha(strategyInfo[strategy].color, 0.7),
+                      backgroundColor: alpha(strategyInfo[strategy].color, 0.05)
+                    }
+                  }}
+                  onClick={() => {
+                    const newSelection = selectedStrategies.includes(strategy)
+                      ? selectedStrategies.filter(s => s !== strategy)
+                      : [...selectedStrategies, strategy];
+                    
+                    if (newSelection.length > 0) {
+                      handleStrategiesChange(null, newSelection);
+                    }
+                  }}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                    <Checkbox 
+                      checked={selectedStrategies.includes(strategy)}
+                      size="small"
+                      sx={{ p: 0.5, mr: 1 }}
+                      color={selectedStrategies.includes(strategy) ? undefined : "default"}
+                    />
+                    <Box sx={{ 
+                      display: 'flex',
+                      alignItems: 'center',
+                      color: selectedStrategies.includes(strategy) 
+                        ? strategyInfo[strategy].color 
+                        : 'text.primary'
+                    }}>
+                      {React.cloneElement(strategyInfo[strategy].icon, { 
+                        sx: { 
+                          mr: 1,
+                          color: selectedStrategies.includes(strategy) 
+                            ? strategyInfo[strategy].color 
+                            : 'text.secondary'
+                        } 
+                      })}
+                      <Typography variant="subtitle2" fontWeight={500}>
+                        {strategyInfo[strategy].title}
+                      </Typography>
+                    </Box>
+                  </Box>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1, fontSize: '0.8rem' }}>
+                    {strategyInfo[strategy].description}
+                  </Typography>
+                </Paper>
+              </Grid>
+            ))}
+          </Grid>
+        </Box>
+      )}
+
+      <Divider sx={{ my: 3 }} />
       
       <Box sx={{ backgroundColor: alpha(theme.palette.background.paper, 0.7), p: 3, borderRadius: 2 }}>
         <Typography variant="h6" gutterBottom color={methodInfo[optimizationMethod].color}>
@@ -2864,7 +3011,7 @@ const OptimizationSettingsForm = ({ values, onChange }) => {
         {optimizationMethod === 'classic' && (
           <Box sx={{ mt: 3 }}>
             <Typography variant="subtitle2" gutterBottom fontWeight="medium">
-              Classic Optimization Settings
+              Standard Optimization Settings
             </Typography>
             
             <FormControl fullWidth sx={{ mb: 4 }}>
@@ -2938,8 +3085,9 @@ const OptimizationSettingsForm = ({ values, onChange }) => {
         {optimizationMethod === 'genetic' && (
           <Box sx={{ mt: 3 }}>
             <Typography variant="subtitle2" gutterBottom fontWeight="medium">
-              Genetic Algorithm Settings
+              Evolutionary Algorithm Settings
             </Typography>
+            
             <FormControl fullWidth sx={{ mb: 2 }}>
               <FormLabel>Population Size</FormLabel>
               <Slider
@@ -2949,9 +3097,14 @@ const OptimizationSettingsForm = ({ values, onChange }) => {
                 max={100}
                 step={5}
                 valueLabelDisplay="auto"
+                marks={[
+                  { value: 10, label: '10' },
+                  { value: 50, label: '50' },
+                  { value: 100, label: '100' },
+                ]}
               />
               <Typography variant="body2" color="text.secondary">
-                Number of individuals in each generation
+                Number of individuals in each generation - larger populations can find better solutions but take longer
               </Typography>
             </FormControl>
             
@@ -2964,9 +3117,14 @@ const OptimizationSettingsForm = ({ values, onChange }) => {
                 max={100}
                 step={5}
                 valueLabelDisplay="auto"
+                marks={[
+                  { value: 10, label: '10' },
+                  { value: 40, label: '40' },
+                  { value: 100, label: '100' },
+                ]}
               />
               <Typography variant="body2" color="text.secondary">
-                Number of evolutionary cycles to run
+                Number of evolutionary cycles to run - more generations improve results but take longer
               </Typography>
             </FormControl>
           </Box>
@@ -6295,10 +6453,8 @@ const OptimizationPage = () => {
   // Method translation mapping
   const getOptimizationMethodName = (method) => {
     const methods = {
-      'classic': 'Classic Strategies',
-      'gradient': 'Gradient Descent',
-      'bayesian': 'Bayesian Optimization',
-      'genetic': 'Genetic Algorithm'
+      'classic': 'Standard Optimization',
+      'genetic': 'Evolutionary Algorithm'
     };
     return methods[method] || method;
   };
@@ -6330,6 +6486,11 @@ const OptimizationPage = () => {
           min_buffer: generalSettings.min_buffer
         }
       };
+      
+      // Log the selected strategies
+      if (method === 'classic' && optimizationSettings.selected_strategies) {
+        console.log(`Selected strategies: ${optimizationSettings.selected_strategies.join(', ')}`);
+      }
       
       // API call based on method
       try {
@@ -6587,15 +6748,6 @@ const OptimizationPage = () => {
 
 export default OptimizationPage;
 
-// Helper function to get a readable name for the optimization method
-const getOptimizationMethodName = (method) => {
-  const methods = {
-    'classic': 'Classic Strategies',
-    'genetic': 'Genetic Algorithm'
-  };
-  return methods[method] || method;
-};
-
 ======================================================================
 
 DOSYA: src\services\apiService.js
@@ -6772,9 +6924,12 @@ scikit-optimize==0.9.0
 
 DOSYA: backend\app\main.py
 ==================================================
+import time
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from app.routers import calculation, optimization
+import uvicorn
 
 app = FastAPI(
     title="ABS Analysis Tool",
@@ -6791,6 +6946,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Add GZip compression for faster responses
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# Add custom middleware for timeout and performance tracking
+@app.middleware("http")
+async def add_process_time_header(request, call_next):
+    start_time = time.time()
+    response = await call_next(request)
+    process_time = time.time() - start_time
+    response.headers["X-Process-Time"] = str(process_time)
+    return response
+
 # Include routers
 app.include_router(calculation.router, prefix="/api", tags=["Calculation"])
 app.include_router(optimization.router, prefix="/api", tags=["Optimization"])
@@ -6798,6 +6965,16 @@ app.include_router(optimization.router, prefix="/api", tags=["Optimization"])
 @app.get("/")
 async def root():
     return {"message": "ABS Analysis Tool API is running"}
+
+# Configure server settings if run directly
+if __name__ == "__main__":
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        timeout_keep_alive=600,  # 10 dakika keep-alive timeout
+        workers=1,  # Optimization işlemi için tek bir işçi daha iyi olabilir
+    )
 
 ======================================================================
 
@@ -6809,7 +6986,6 @@ DOSYA: backend\app\__init__.py
 
 DOSYA: backend\app\models\input_models.py
 ==================================================
-# backend/app/models/input_models.py
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import date
@@ -6838,6 +7014,7 @@ class NPVSettings(BaseModel):
 
 class OptimizationSettings(BaseModel):
     optimization_method: str = Field(default="classic")
+    selected_strategies: List[str] = Field(default=["equal", "increasing", "decreasing", "middle_weighted"])
     a_tranches_range: List[int] = Field(default=[2, 6])
     maturity_range: List[int] = Field(default=[32, 365])
     maturity_step: int = Field(default=10)
@@ -6845,17 +7022,9 @@ class OptimizationSettings(BaseModel):
     target_class_b_coupon_rate: float = Field(default=30.0)
     additional_days_for_class_b: int = Field(default=10)
     
-    # Gradient descent için
-    learning_rate: Optional[float] = Field(default=0.01)
-    max_iterations: Optional[int] = Field(default=100)
-    
-    # Genetik algoritma için
+    # Evolutionary algorithm parameters
     population_size: Optional[int] = Field(default=50)
     num_generations: Optional[int] = Field(default=40)
-    
-    # Bayesian için
-    n_calls: Optional[int] = Field(default=50)
-    n_initial_points: Optional[int] = Field(default=10)
 
 class CalculationRequest(BaseModel):
     general_settings: GeneralSettings
@@ -6966,10 +7135,10 @@ async def calculate(request: CalculationRequest):
 
 DOSYA: backend\app\routers\optimization.py
 ==================================================
-# backend/app/routers/optimization.py
 import time
 import traceback
 import logging
+import asyncio
 from fastapi.responses import JSONResponse
 from fastapi import APIRouter, HTTPException, Path
 from app.models.input_models import OptimizationSettings, GeneralSettings
@@ -7005,22 +7174,36 @@ async def optimize_classic(
         # Log the request
         logger.info(f"Starting classic optimization with parameters: {optimization_settings}")
         
-        # Perform the optimization with classic method
-        result = perform_optimization(df, general_settings, optimization_settings)
+        # Perform the optimization with classic method in a separate thread
+        # to not block the event loop and allow progress updates
+        def run_optimization():
+            return perform_optimization(df, general_settings, optimization_settings)
+        
+        # Run the CPU-bound optimization task in a thread pool
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, run_optimization)
         
         # Log success
         logger.info("Classic optimization completed successfully")
+        
+        # Ensure progress is set to 100% when complete
+        optimization_progress.update(
+            step=100,
+            phase="Complete",
+            message="Optimization completed successfully"
+        )
+        
         return result
     except Exception as e:
         # Log the error
         logger.error(f"Classic optimization error: {str(e)}")
         logger.error(traceback.format_exc())
         
-        # Reset progress tracker in case of error
-        optimization_progress.reset()
+        # Update progress tracker in case of error (don't reset)
         optimization_progress.update(
             phase="Error",
-            message=f"Classic optimization error: {str(e)}"
+            message=f"Classic optimization error: {str(e)}",
+            step=100
         )
         
         raise HTTPException(status_code=500, detail=f"Classic optimization error: {str(e)}")
@@ -7041,21 +7224,35 @@ async def optimize_genetic(
         # Log the request
         logger.info(f"Starting genetic optimization with parameters: {optimization_settings}")
         
-        result = perform_genetic_optimization(df, general_settings, optimization_settings)
+        # Perform the optimization in a separate thread
+        def run_optimization():
+            return perform_genetic_optimization(df, general_settings, optimization_settings)
+        
+        # Run the CPU-bound optimization task in a thread pool
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, run_optimization)
         
         # Log success
         logger.info("Genetic optimization completed successfully")
+        
+        # Ensure progress is set to 100% when complete
+        optimization_progress.update(
+            step=100,
+            phase="Complete",
+            message="Optimization completed successfully"
+        )
+        
         return result
     except Exception as e:
         # Log the error
         logger.error(f"Genetic optimization error: {str(e)}")
         logger.error(traceback.format_exc())
         
-        # Reset progress tracker in case of error
-        optimization_progress.reset()
+        # Update progress tracker in case of error (don't reset)
         optimization_progress.update(
             phase="Error",
-            message=f"Genetic optimization error: {str(e)}"
+            message=f"Genetic optimization error: {str(e)}",
+            step=100
         )
         
         raise HTTPException(status_code=500, detail=f"Genetic optimization error: {str(e)}")
@@ -7069,7 +7266,19 @@ async def optimize(
     method = getattr(optimization_settings, "optimization_method", "classic")
     logger.info(f"Optimizing with method: {method}")
     
+    # Reset progress before starting
+    optimization_progress.reset()
+    
+    # Add timeout handling
     try:
+        # Sınırlı kombinasyon sayısı ve iterasyon
+        if hasattr(optimization_settings, "maturity_range") and len(optimization_settings.maturity_range) == 2:
+            # İşlem süresini azaltmak için parametreleri sınırla
+            range_diff = optimization_settings.maturity_range[1] - optimization_settings.maturity_range[0]
+            if range_diff > 200 and optimization_settings.maturity_step < 15:
+                logger.warning(f"Large maturity range ({range_diff}) with small step ({optimization_settings.maturity_step}). Adjusting step.")
+                optimization_settings.maturity_step = max(15, optimization_settings.maturity_step)
+        
         if method == "classic":
             return await optimize_classic(optimization_settings, general_settings)
         elif method == "genetic":
@@ -7080,9 +7289,24 @@ async def optimize(
             optimization_settings.optimization_method = "classic"
             return await optimize_classic(optimization_settings, general_settings)
     except Exception as e:
+        # Güncelleme yapmak için hata durumunda progress'i güncelle
+        optimization_progress.update(
+            phase="Error", 
+            message=f"Optimization error: {str(e)}",
+            step=100
+        )
+        
         logger.error(f"Error in main optimize endpoint: {str(e)}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Optimization error: {str(e)}")
+
+@router.get("/optimize/progress/")
+async def get_optimization_progress():
+    """Get the current status of the optimization process"""
+    # İlerleme sıfırlanmış olabileceğinden force_update
+    progress_data = optimization_progress.get_info()
+    logger.debug(f"Progress data: {progress_data}")  # Debugging için loglama ekleyin
+    return progress_data
 
 ======================================================================
 
@@ -7378,13 +7602,7 @@ logger = logging.getLogger(__name__)
 class OptimizationProgress:
     """Class to track and report optimization progress"""
     def __init__(self):
-        self.current_step = 0
-        self.total_steps = 100
-        self.current_phase = "Initializing"
-        self.status_message = "Starting optimization..."
-        self.progress = 0
-        self.last_update_time = time.time()
-        self.lock = False  # Simple lock mechanism
+        self.reset()
         
     def reset(self):
         """Reset all progress tracking variables"""
@@ -7394,52 +7612,54 @@ class OptimizationProgress:
         self.status_message = "Starting optimization..."
         self.progress = 0
         self.last_update_time = time.time()
-        self.lock = False  # Ensure lock is released
+        self.start_time = time.time()
         logger.info("Progress tracker reset")
         
     def update(self, step=None, total=None, phase=None, message=None):
-        """Update progress information with minimal state contention"""
-        if self.lock:
-            return  # Skip update if another update is in progress
+        """Update progress information"""
+        current_time = time.time()
+        
+        # Update more frequently
+        force_update = (current_time - self.last_update_time) > 0.2
+        
+        if step is not None:
+            self.current_step = step
+        if total is not None:
+            self.total_steps = total
+        if phase is not None:
+            self.current_phase = phase
+        if message is not None:
+            self.status_message = message
             
-        self.lock = True  # Acquire lock
-        try:
-            current_time = time.time()
+        # Calculate percentage
+        if self.total_steps > 0:
+            new_progress = min(99, int((self.current_step / self.total_steps) * 100))
+            if self.current_phase == "Complete" or self.current_phase == "Error":
+                new_progress = 100  # Set to 100% when complete or error
             
-            # Only update if there's been a change or more than 1 second has passed
-            force_update = (current_time - self.last_update_time) > 1
-            
-            if step is not None:
-                self.current_step = step
-            if total is not None:
-                self.total_steps = total
-            if phase is not None:
-                self.current_phase = phase
-            if message is not None:
-                self.status_message = message
-                
-            # Calculate percentage
-            if self.total_steps > 0:
-                new_progress = min(100, int((self.current_step / self.total_steps) * 100))
-                progress_changed = new_progress != self.progress
-                self.progress = new_progress
-            
-            # Log progress for debugging if something changed or if forced
-            if message is not None or progress_changed or force_update:
-                logger.info(f"Progress: {self.progress}% - {self.current_phase} - {self.status_message}")
-                self.last_update_time = current_time
-        finally:
-            self.lock = False  # Release lock
+            progress_changed = new_progress != self.progress
+            self.progress = new_progress
+        
+        # Log progress updates
+        if phase is not None or message is not None or progress_changed or force_update:
+            elapsed = current_time - self.start_time
+            logger.info(f"Progress: {self.progress}% - {self.current_phase} - {self.status_message} (elapsed: {elapsed:.1f}s)")
+            self.last_update_time = current_time
         
     def get_info(self):
-        """Get current progress information"""
+        """Get current progress information with additional data"""
+        current_time = time.time()
+        elapsed = current_time - self.start_time
+        
         return {
             "progress": self.progress,
             "phase": self.current_phase,
             "message": self.status_message,
             "step": self.current_step,
             "total_steps": self.total_steps,
-            "timestamp": time.time()
+            "timestamp": current_time,
+            "elapsed_seconds": elapsed,
+            "start_time": self.start_time
         }
 
 # Create the global optimization_progress instance
@@ -7986,8 +8206,8 @@ def perform_optimization(df: pd.DataFrame, general_settings: GeneralSettings, op
     
     # Initialize progress tracking
     optimization_progress.update(step=0, total=100, 
-                                phase="Classic Optimization", 
-                                message="Starting classic optimization...")
+                                phase="Standard Optimization", 
+                                message="Starting standard optimization...")
     
     # Extract settings
     min_a_tranches, max_a_tranches = optimization_settings.a_tranches_range
@@ -7996,6 +8216,13 @@ def perform_optimization(df: pd.DataFrame, general_settings: GeneralSettings, op
     min_class_b_percent = optimization_settings.min_class_b_percent
     target_class_b_coupon_rate = optimization_settings.target_class_b_coupon_rate
     additional_days = optimization_settings.additional_days_for_class_b
+    
+    # Get selected strategies - use all if not specified
+    selected_strategies = getattr(optimization_settings, "selected_strategies", 
+                                ["equal", "increasing", "decreasing", "middle_weighted"])
+    
+    optimization_progress.update(step=5, 
+                               message=f"Selected strategies: {', '.join(selected_strategies)}")
     
     # Set maximum allowed difference for coupon rate
     max_allowed_diff = 1.0  # Maximum 1% difference
@@ -8070,7 +8297,7 @@ def perform_optimization(df: pd.DataFrame, general_settings: GeneralSettings, op
         total_maturity_combinations += min(1000, len(list(itertools.combinations(possible_maturities, num_a_tranches))))
     
     # 4 strategies per maturity combo
-    total_iterations = total_maturity_combinations * 4
+    total_iterations = total_maturity_combinations * len(selected_strategies)
     optimization_progress.update(message=f"Estimated iterations: {total_iterations}")
     
     # Progress tracking variables
@@ -8098,7 +8325,7 @@ def perform_optimization(df: pd.DataFrame, general_settings: GeneralSettings, op
                 maturity_combinations.append(sorted_maturities)
         
         # If too many combinations, sample a reasonable number
-        max_samples = 100
+        max_samples = 30
         if len(maturity_combinations) > max_samples:
             sampled_indices = np.random.choice(len(maturity_combinations), max_samples, replace=False)
             maturity_combinations = [maturity_combinations[i] for i in sampled_indices]
@@ -8111,7 +8338,7 @@ def perform_optimization(df: pd.DataFrame, general_settings: GeneralSettings, op
         for combo_idx, maturities in enumerate(maturity_combinations):
             combo_progress = tranche_progress_base + (combo_idx * combo_progress_step)
             
-            if combo_idx % 5 == 0:  # Update every 5 combinations to avoid too many updates
+            if combo_idx % 1 == 0:  # Update every 1 combinations to avoid too many updates
                 optimization_progress.update(
                     step=int(combo_progress),
                     message=f"Testing maturity combination {combo_idx+1}/{combo_count}: {maturities}"
@@ -8139,21 +8366,17 @@ def perform_optimization(df: pd.DataFrame, general_settings: GeneralSettings, op
             
             # Different nominal distribution strategies
             distribution_strategies = [
-                "equal",               # Equal distribution
-                "increasing",          # Increasing by maturity
-                "decreasing",          # Decreasing by maturity
-                "middle_weighted"      # More weight to middle tranches
+                strategy for strategy in selected_strategies 
+                if strategy in ["equal", "increasing", "decreasing", "middle_weighted"]
             ]
             
-            for strategy_idx, strategy in enumerate(distribution_strategies):
-                strategy_progress = combo_progress + (strategy_idx * (combo_progress_step / 4))
-                
-                if combo_idx % 5 == 0 and strategy_idx == 0:  # Limit updates
-                    optimization_progress.update(
-                        step=int(strategy_progress),
-                        message=f"Testing strategy: {strategy} for combination {combo_idx+1}"
-                    )
-                
+            # If no valid strategies, use all
+            if not distribution_strategies:
+                distribution_strategies = ["equal", "increasing", "decreasing", "middle_weighted"]
+                logger.warning(f"No valid strategies selected, using all: {distribution_strategies}")
+            
+            # Process each strategy - FIXED: Loop through each strategy
+            for strategy in distribution_strategies:
                 # Calculate Class B nominal based on minimum percentage
                 total_nominal_amount = total_a_nominal / (1 - min_class_b_percent/100)
                 class_b_nominal = total_nominal_amount * (min_class_b_percent / 100)
@@ -8185,6 +8408,10 @@ def perform_optimization(df: pd.DataFrame, general_settings: GeneralSettings, op
                         a_nominals = (weights / weights.sum()) * remaining_nominal
                     else:
                         a_nominals = [remaining_nominal / num_a_tranches] * num_a_tranches
+                else:
+                    # Invalid strategy, use equal distribution as fallback
+                    logger.warning(f"Unknown strategy: {strategy}, using equal distribution")
+                    a_nominals = [remaining_nominal / num_a_tranches] * num_a_tranches
                 
                 # Round to nearest 1000
                 a_nominals = [round(n / 1000) * 1000 for n in a_nominals]
@@ -8217,199 +8444,89 @@ def perform_optimization(df: pd.DataFrame, general_settings: GeneralSettings, op
                 if success:
                     a_nominals = adjusted_a_nominals
                 
-                # Set up parameters for calculation
-                a_maturity_days = list(maturities)
-                a_spreads = [0.0] * len(a_maturity_days)
-                b_maturity_days = [class_b_maturity]
-                b_nominal = [class_b_nominal]
-                b_spreads = [0.0]
+                # Evaluate the result
+                eval_result = evaluate_params(
+                    maturities, a_nominals, 
+                    class_b_maturity, start_date, df_temp,
+                    maturity_to_base_rate_A, maturity_to_reinvest_rate_A,
+                    b_base_rate, b_reinvest_rate,
+                    min_class_b_percent, target_class_b_coupon_rate, min_buffer
+                )
                 
-                # Combine all parameters
-                all_maturity_days = a_maturity_days + b_maturity_days
-                all_base_rates = a_base_rates + [b_base_rate]
-                all_spreads = a_spreads + b_spreads
-                all_reinvest_rates = a_reinvest_rates + [b_reinvest_rate]
-                all_nominal = a_nominals + b_nominal
-                
-                # Calculate maturity dates
-                all_maturity_dates = [start_date + pd.Timedelta(days=days) for days in all_maturity_days]
-                
-                # Distribute cash flows to tranches
-                try:
-                    tranch_cash_flows = assign_cash_flows_to_tranches(
-                        df_temp, start_date, all_maturity_dates, all_reinvest_rates
-                    )
-                    
-                    # Calculate results for each tranche
-                    results = []
-                    buffer = 0.0
-                    
-                    for i in range(len(all_maturity_days)):
-                        is_class_a = (i < len(a_maturity_days))
-                        
-                        # Calculate cash flow totals
-                        c_flow, r_return, total_principal, total_interest = calculate_totals(
-                            tranch_cash_flows[i], all_maturity_dates[i], all_reinvest_rates[i]
-                        )
-                        
-                        # Buffer reinvestment calculation
-                        if i > 0 and buffer > 0:
-                            dd = all_maturity_days[i] - all_maturity_days[i-1]
-                            if dd > 0:
-                                factor = (1 + simple_to_compound_annual(all_reinvest_rates[i])/100)**(dd/365) - 1
-                                buffer_reinv = buffer * factor
-                            else:
-                                buffer_reinv = 0
-                        else:
-                            buffer_reinv = 0
-                        
-                        # Total available funds
-                        total_available = c_flow + r_return + buffer + buffer_reinv
-                        
-                        # Interest rate calculations
-                        base_rate_val = all_base_rates[i]
-                        spread_bps = all_spreads[i]
-                        total_rate = base_rate_val + (spread_bps/100.0)
-                        
-                        if is_class_a:
-                            # Class A payment logic
-                            nominal_pmt = all_nominal[i]
-                            discount_factor = 1 / (1 + (total_rate/100 * all_maturity_days[i]/365)) if all_maturity_days[i] > 0 else 1
-                            principal = nominal_pmt * discount_factor
-                            interest = nominal_pmt - principal
-                            coupon_payment = 0
-                            total_payment = nominal_pmt
-                        else:
-                            # Class B payment logic
-                            nominal_pmt = all_nominal[i]
-                            principal = nominal_pmt
-                            coupon_payment = max(0, total_available - principal)
-                            interest = 0
-                            total_payment = principal + coupon_payment
-                        
-                        # Calculate buffer with division by zero protection
-                        new_buffer = max(0, total_available - total_payment)
-                        buffer_cf_ratio = (new_buffer / nominal_pmt * 100) if nominal_pmt > 0 else 0
-                        
-                        # Add to results
-                        results.append({
-                            "is_class_a": is_class_a,
-                            "principal": principal,
-                            "interest": interest,
-                            "coupon_payment": coupon_payment,
-                            "total_payment": total_payment,
-                            "buffer_cf_ratio": buffer_cf_ratio,
-                            "maturity_days": all_maturity_days[i],
-                            "base_rate": base_rate_val,
-                            "nominal": all_nominal[i],
-                            "discount_factor": discount_factor
-                        })
-                        
-                        # Update buffer for next tranche
-                        buffer = new_buffer
-                    
-                    # Split results by class
-                    class_a_results = [r for r in results if r['is_class_a']]
-                    class_b_results = [r for r in results if not r['is_class_a']]
-                    
-                    # Calculate key metrics
-                    class_a_principal = sum(r['principal'] for r in class_a_results)
-                    class_b_principal = sum(r['principal'] for r in class_b_results)
-                    class_a_interest = sum(r['interest'] for r in class_a_results)
-                    class_b_coupon = sum(r['coupon_payment'] for r in class_b_results)
-                    class_a_total = sum(r['total_payment'] for r in class_a_results)
-                    class_b_total = sum(r['total_payment'] for r in class_b_results)
-                    
-                    # Class B base rate should match the last Class A's
-                    class_b_base_rate = class_b_results[0]['base_rate'] if class_b_results else 0.0
-                    
-                    # Calculate Class B effective coupon rate (annualized)
-                    if class_b_results and class_b_principal > 0:
-                        class_b_maturity_days = class_b_results[0]['maturity_days']
-                        class_b_coupon_rate = (class_b_coupon / class_b_principal) * (365 / class_b_maturity_days) * 100
-                    else:
-                        class_b_coupon_rate = 0.0
-                    
-                    min_buffer_actual = min(r['buffer_cf_ratio'] for r in class_a_results) if class_a_results else 0.0
+                # Check if valid and meets buffer requirement
+                if eval_result['is_valid'] and eval_result['results']:
+                    result_dict = eval_result['results']
+                    total_principal = result_dict['total_principal']
+                    class_b_coupon_rate = result_dict['class_b_coupon_rate']
+                    min_buffer_actual = result_dict['min_buffer_actual']
                     
                     # Calculate difference from target coupon rate
                     coupon_rate_diff = abs(class_b_coupon_rate - target_class_b_coupon_rate)
                     
-                    # Check if valid and meets buffer requirement
-                    if min_buffer_actual >= min_buffer:
-                        total_principal = class_a_principal + class_b_principal
-                        
-                        # Calculate weighted score based on principal and coupon rate match
-                        # Use exponential penalty for larger differences
-                        coupon_rate_weight = np.exp(-coupon_rate_diff / 5.0)  # Stronger penalty for rate difference
-                        weighted_principal = total_principal * coupon_rate_weight
-                        
-                        # Check if this is the best solution for this strategy
-                        # Prioritize solutions with smaller coupon rate differences
-                        is_better = False
-                        
-                        if coupon_rate_diff <= best_coupon_rate_diff_by_strategy[strategy]:
-                            # If coupon rate difference is better or equal, check weighted principal
-                            if coupon_rate_diff < best_coupon_rate_diff_by_strategy[strategy] or \
-                               weighted_principal > best_weighted_principal_by_strategy[strategy]:
-                                is_better = True
-                        elif coupon_rate_diff <= max_allowed_diff and \
-                             weighted_principal > best_weighted_principal_by_strategy[strategy]:
-                            # If within allowed difference and better weighted principal
+                    # Calculate weighted score based on principal and coupon rate match
+                    coupon_rate_weight = np.exp(-coupon_rate_diff / 5.0)  # Stronger penalty for rate difference
+                    weighted_principal = total_principal * coupon_rate_weight
+                    
+                    # Check if this is the best solution for this strategy
+                    # Prioritize solutions with smaller coupon rate differences
+                    is_better = False
+                    
+                    if coupon_rate_diff <= best_coupon_rate_diff_by_strategy[strategy]:
+                        # If coupon rate difference is better or equal, check weighted principal
+                        if coupon_rate_diff < best_coupon_rate_diff_by_strategy[strategy] or \
+                           weighted_principal > best_weighted_principal_by_strategy[strategy]:
                             is_better = True
+                    elif coupon_rate_diff <= max_allowed_diff and \
+                         weighted_principal > best_weighted_principal_by_strategy[strategy]:
+                        # If within allowed difference and better weighted principal
+                        is_better = True
+                    
+                    if is_better:
+                        best_coupon_rate_diff_by_strategy[strategy] = coupon_rate_diff
+                        best_weighted_principal_by_strategy[strategy] = weighted_principal
                         
-                        if is_better:
-                            best_coupon_rate_diff_by_strategy[strategy] = coupon_rate_diff
-                            best_weighted_principal_by_strategy[strategy] = weighted_principal
-                            
-                            best_params_by_strategy[strategy] = {
-                                'num_a_tranches': num_a_tranches,
-                                'a_maturity_days': a_maturity_days,
-                                'a_base_rates': a_base_rates,
-                                'a_reinvest_rates': a_reinvest_rates,
-                                'a_nominal_amounts': a_nominals,
-                                'b_maturity_days': b_maturity_days,
-                                'b_base_rates': [b_base_rate],
-                                'b_reinvest_rates': [b_reinvest_rate],
-                                'b_nominal': b_nominal,
-                                'strategy': strategy,
-                                'last_cash_flow_day': last_cash_flow_day,
-                                'added_days': additional_days
-                            }
-                            
-                            best_results_by_strategy[strategy] = {
-                                'class_a_principal': class_a_principal,
-                                'class_b_principal': class_b_principal,
-                                'class_a_interest': class_a_interest,
-                                'class_b_coupon': class_b_coupon,
-                                'class_a_total': class_a_total,
-                                'class_b_total': class_b_total,
-                                'min_buffer_actual': min_buffer_actual,
-                                'total_principal': total_principal,
-                                'class_b_coupon_rate': class_b_coupon_rate,
-                                'target_class_b_coupon_rate': target_class_b_coupon_rate,
-                                'coupon_rate_diff': coupon_rate_diff,
-                                'coupon_rate_weight': coupon_rate_weight,
-                                'class_b_base_rate': class_b_base_rate,
-                                'num_a_tranches': num_a_tranches
-                            }
-                            
-                            optimization_progress.update(
-                                message=f"Found better solution for {strategy}: coupon_rate={class_b_coupon_rate:.2f}%, " +
-                                       f"diff={coupon_rate_diff:.2f}%, total_principal={total_principal:,.2f}"
-                            )
-                
-                except Exception as e:
-                    logger.error(f"Error in calculation for {strategy} strategy: {str(e)}")
-                    logger.debug(traceback.format_exc())
-                    # Continue to next strategy
-                    continue
+                        best_params_by_strategy[strategy] = {
+                            'num_a_tranches': num_a_tranches,
+                            'a_maturity_days': list(maturities),
+                            'a_base_rates': a_base_rates,
+                            'a_reinvest_rates': a_reinvest_rates,
+                            'a_nominal_amounts': a_nominals,
+                            'b_maturity_days': [class_b_maturity],
+                            'b_base_rates': [b_base_rate],
+                            'b_reinvest_rates': [b_reinvest_rate],
+                            'b_nominal': [class_b_nominal],
+                            'strategy': strategy,
+                            'last_cash_flow_day': last_cash_flow_day,
+                            'added_days': additional_days
+                        }
+                        
+                        best_results_by_strategy[strategy] = {
+                            'class_a_principal': result_dict['class_a_principal'],
+                            'class_b_principal': result_dict['class_b_principal'],
+                            'class_a_interest': result_dict['class_a_interest'],
+                            'class_b_coupon': result_dict['class_b_coupon'],
+                            'class_a_total': result_dict['class_a_total'],
+                            'class_b_total': result_dict['class_b_total'],
+                            'min_buffer_actual': min_buffer_actual,
+                            'total_principal': total_principal,
+                            'class_b_coupon_rate': class_b_coupon_rate,
+                            'target_class_b_coupon_rate': target_class_b_coupon_rate,
+                            'coupon_rate_diff': coupon_rate_diff,
+                            'coupon_rate_weight': coupon_rate_weight,
+                            'class_b_base_rate': b_base_rate,
+                            'num_a_tranches': num_a_tranches
+                        }
+                        
+                        optimization_progress.update(
+                            message=f"Found better solution for {strategy}: coupon_rate={class_b_coupon_rate:.2f}%, " +
+                                   f"diff={coupon_rate_diff:.2f}%, total_principal={total_principal:,.2f}"
+                        )
                 
                 # Update iteration counter
                 current_iteration += 1
                 
                 # Update progress periodically
-                if current_iteration % 50 == 0:
+                if current_iteration % 10 == 0:
                     progress_percent = min(80, 20 + int(current_iteration / total_iterations * 60))
                     optimization_progress.update(
                         step=progress_percent,

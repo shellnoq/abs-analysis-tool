@@ -38,10 +38,8 @@ const OptimizationPage = () => {
   // Method translation mapping
   const getOptimizationMethodName = (method) => {
     const methods = {
-      'classic': 'Classic Strategies',
-      'gradient': 'Gradient Descent',
-      'bayesian': 'Bayesian Optimization',
-      'genetic': 'Genetic Algorithm'
+      'classic': 'Standard Optimization',
+      'genetic': 'Evolutionary Algorithm'
     };
     return methods[method] || method;
   };
@@ -73,6 +71,11 @@ const OptimizationPage = () => {
           min_buffer: generalSettings.min_buffer
         }
       };
+      
+      // Log the selected strategies
+      if (method === 'classic' && optimizationSettings.selected_strategies) {
+        console.log(`Selected strategies: ${optimizationSettings.selected_strategies.join(', ')}`);
+      }
       
       // API call based on method
       try {
@@ -329,12 +332,3 @@ const OptimizationPage = () => {
 };
 
 export default OptimizationPage;
-
-// Helper function to get a readable name for the optimization method
-const getOptimizationMethodName = (method) => {
-  const methods = {
-    'classic': 'Classic Strategies',
-    'genetic': 'Genetic Algorithm'
-  };
-  return methods[method] || method;
-};
