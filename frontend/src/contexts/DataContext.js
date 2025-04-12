@@ -25,6 +25,10 @@ export const DataProvider = ({ children }) => {
     { maturity_days: 274, base_rate: 42.5, spread: 0.0, reinvest_rate: 30.0, nominal: 400000000 },
   ]);
   
+  // Store original tranche values for reset functionality
+  const [originalTranchesA, setOriginalTranchesA] = useState(null);
+  const [originalTrancheB, setOriginalTrancheB] = useState(null);
+  
   const [trancheB, setTrancheB] = useState({
     maturity_days: 300,
     base_rate: 0.0,
@@ -53,6 +57,12 @@ export const DataProvider = ({ children }) => {
     return saved ? JSON.parse(saved) : null;
   });
   
+  // New state for multiple comparison results
+  const [multipleComparisonResults, setMultipleComparisonResults] = useState(() => {
+    const saved = localStorage.getItem('multipleComparisonResults');
+    return saved ? JSON.parse(saved) : [];
+  });
+  
   // Wrap setState functions to also update localStorage
   const setCalculationResultsWithStorage = (results) => {
     setCalculationResults(results);
@@ -68,6 +78,21 @@ export const DataProvider = ({ children }) => {
     setPreviousCalculationResults(results);
     localStorage.setItem('previousCalculationResults', JSON.stringify(results));
   };
+  
+  const setMultipleComparisonResultsWithStorage = (results) => {
+    setMultipleComparisonResults(results);
+    localStorage.setItem('multipleComparisonResults', JSON.stringify(results));
+  };
+  
+  // Store original values when first loading
+  useEffect(() => {
+    if (!originalTranchesA) {
+      setOriginalTranchesA(JSON.parse(JSON.stringify(tranchesA)));
+    }
+    if (!originalTrancheB) {
+      setOriginalTrancheB(JSON.parse(JSON.stringify(trancheB)));
+    }
+  }, []);
   
   // Update localStorage when state changes
   useEffect(() => {
@@ -88,6 +113,12 @@ export const DataProvider = ({ children }) => {
     }
   }, [previousCalculationResults]);
   
+  useEffect(() => {
+    if (multipleComparisonResults) {
+      localStorage.setItem('multipleComparisonResults', JSON.stringify(multipleComparisonResults));
+    }
+  }, [multipleComparisonResults]);
+  
   // Optimization settings - Updated with new method options
   const [optimizationSettings, setOptimizationSettings] = useState({
     optimization_method: 'classic', // Yeni alan
@@ -107,6 +138,16 @@ export const DataProvider = ({ children }) => {
     n_calls: 50,
     n_initial_points: 10
   });
+
+  // Helper function to reset to default values
+  const resetToDefaults = () => {
+    if (originalTranchesA && originalTrancheB) {
+      setTranchesA(JSON.parse(JSON.stringify(originalTranchesA)));
+      setTrancheB(JSON.parse(JSON.stringify(originalTrancheB)));
+      return true;
+    }
+    return false;
+  };
 
   // Helper function to clear data
   const clearData = () => {
@@ -165,6 +206,10 @@ export const DataProvider = ({ children }) => {
     npvSettings,
     setNpvSettings,
     
+    // Original values for reset
+    originalTranchesA,
+    originalTrancheB,
+    
     // Results state - use wrapper functions instead of direct setState
     calculationResults,
     setCalculationResults: setCalculationResultsWithStorage,
@@ -173,6 +218,10 @@ export const DataProvider = ({ children }) => {
     previousCalculationResults,
     setPreviousCalculationResults: setPreviousCalculationResultsWithStorage,
     
+    // Multiple comparison results
+    multipleComparisonResults,
+    setMultipleComparisonResults: setMultipleComparisonResultsWithStorage,
+    
     // Optimization settings
     optimizationSettings,
     setOptimizationSettings,
@@ -180,7 +229,8 @@ export const DataProvider = ({ children }) => {
     // Helper functions
     clearData,
     createCalculationRequest,
-    createOptimizationRequest
+    createOptimizationRequest,
+    resetToDefaults
   };
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

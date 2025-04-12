@@ -83,46 +83,46 @@ import ComparisonPage from "./pages/ComparisonPage";
 const theme = createTheme({
   palette: {
     primary: {
-      main: '#1976d2', // More professional blue
-      light: '#4791db',
-      dark: '#115293',
+      main: '#d32f2f', // Ana kırmızı
+      light: '#ef5350',
+      dark: '#b71c1c',
       contrastText: '#ffffff',
     },
     secondary: {
-      main: '#26a69a', // Teal - more business-like than green
-      light: '#51b7ae',
-      dark: '#00766c',
+      main: '#c2185b', // Pembe-kırmızı
+      light: '#e91e63',
+      dark: '#880e4f',
       contrastText: '#ffffff',
     },
     error: {
-      main: '#d32f2f',
-      light: '#ef5350',
-      dark: '#c62828',
+      main: '#ff1744',
+      light: '#ff4569',
+      dark: '#d50000',
     },
     warning: {
-      main: '#ed6c02',
-      light: '#ff9800',
+      main: '#ff9100',
+      light: '#ffb74d',
       dark: '#e65100',
     },
     info: {
-      main: '#0288d1',
-      light: '#03a9f4',
-      dark: '#01579b',
+      main: '#f44336',
+      light: '#ef9a9a',
+      dark: '#c62828',
     },
     success: {
-      main: '#2e7d32',
-      light: '#4caf50',
-      dark: '#1b5e20',
+      main: '#8bc34a',
+      light: '#aed581',
+      dark: '#689f38',
     },
     background: {
-      default: '#f5f7fa',
+      default: '#fff5f5',
       paper: '#ffffff',
     },
     text: {
-      primary: '#2c3e50',
-      secondary: '#546e7a',
+      primary: '#3e2723',
+      secondary: '#5d4037',
     },
-    divider: 'rgba(0, 0, 0, 0.12)',
+    divider: 'rgba(211, 47, 47, 0.12)',
   },
   typography: {
     fontFamily: '"Roboto", "Segoe UI", "Helvetica Neue", sans-serif',
@@ -173,7 +173,7 @@ const theme = createTheme({
       styleOverrides: {
         head: {
           fontWeight: 600,
-          backgroundColor: 'rgba(0, 0, 0, 0.03)',
+          backgroundColor: 'rgba(211, 47, 47, 0.05)',
         },
       },
     },
@@ -5980,7 +5980,7 @@ const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 60000, // 60 second timeout for optimization requests
+  timeout: 300000, // 5 dakika (300 saniye) timeout for optimization requests
 });
 
 // File upload needs different content type

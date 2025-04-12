@@ -12,9 +12,15 @@ import {
   TableHead, 
   TableRow,
   Divider,
-  Chip
+  Chip,
+  Grid,
+  Card,
+  CardContent,
+  alpha,
+  useTheme,
+  Snackbar,
+  Alert
 } from '@mui/material';
-import { useTheme } from '@mui/material/styles';
 import { 
   BarChart, Bar, 
   PieChart, Pie, Cell, 
@@ -22,21 +28,43 @@ import {
   Scatter, ScatterChart, ZAxis
 } from 'recharts';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import ReplayIcon from '@mui/icons-material/Replay';
 import { useData } from '../../contexts/DataContext';
 import { useNavigate } from 'react-router-dom';
+import { calculateResults } from '../../services/apiService';
 
 // Strategy name mapping
 const strategyNames = {
   equal: "Equal Distribution",
   increasing: "Increasing by Maturity",
   decreasing: "Decreasing by Maturity",
-  middle_weighted: "Middle Tranches Weighted"
+  middle_weighted: "Middle Tranches Weighted",
+  gradient: "Gradient Descent",
+  bayesian: "Bayesian Optimization",
+  genetic: "Genetic Algorithm"
 };
 
 const OptimizationResults = ({ results }) => {
   const theme = useTheme();
   const navigate = useNavigate();
-  const { setTranchesA, setTrancheB, calculationResults, setPreviousCalculationResults } = useData();
+  const { 
+    setTranchesA, 
+    setTrancheB, 
+    calculationResults, 
+    setPreviousCalculationResults, 
+    originalTranchesA, 
+    originalTrancheB,
+    setIsLoading,
+    setError,
+    createCalculationRequest,
+    setCalculationResults,
+    setMultipleComparisonResults,
+    multipleComparisonResults
+  } = useData();
+  
+  const [snackbarOpen, setSnackbarOpen] = React.useState(false);
+  const [snackbarMessage, setSnackbarMessage] = React.useState('');
+  const [snackbarSeverity, setSnackbarSeverity] = React.useState('success');
   
   // Format currency values
   const formatCurrency = (value) => {
@@ -86,49 +114,172 @@ const OptimizationResults = ({ results }) => {
   
   // Strategy comparison data
   const strategyResultsData = Object.entries(results.results_by_strategy).map(([strategy, data]) => ({
-    name: strategyNames[strategy],
+    name: strategyNames[strategy] || strategy,
     totalPrincipal: data.total_principal,
     classBCouponRate: data.class_b_coupon_rate,
     minBufferActual: data.min_buffer_actual,
     isBest: strategy === results.best_strategy
   }));
   
-  // Apply the best strategy configuration to the forms
-  const applyConfiguration = () => {
-    // Store the current calculation results for comparison before we change the configuration
-    if (calculationResults) {
-      setPreviousCalculationResults(calculationResults);
+  // Apply the best strategy configuration to the forms and automatically calculate
+  const applyConfiguration = async () => {
+    try {
+      // Store the current calculation results for comparison before we change the configuration
+      if (calculationResults) {
+        setPreviousCalculationResults(calculationResults);
+      }
+      
+      const a_tranches = results.class_a_maturities.map((maturity, index) => ({
+        maturity_days: maturity,
+        base_rate: results.class_a_rates[index],
+        spread: 0.0, // Default value
+        reinvest_rate: results.class_a_reinvest[index],
+        nominal: results.class_a_nominals[index]
+      }));
+      
+      const b_tranche = {
+        maturity_days: results.class_b_maturity,
+        base_rate: results.class_b_rate,
+        spread: 0.0, // Default value
+        reinvest_rate: results.class_b_reinvest
+      };
+      
+      // Update form state
+      setTranchesA(a_tranches);
+      setTrancheB(b_tranche);
+      
+      // Show processing message
+      setSnackbarMessage('Applying configuration and calculating results...');
+      setSnackbarSeverity('info');
+      setSnackbarOpen(true);
+      
+      // Navigate to calculation page
+      navigate('/calculation');
+      
+      // Brief delay to ensure state updates have propagated
+      setTimeout(async () => {
+        try {
+          // Auto-trigger calculation
+          setIsLoading(true);
+          setError(null);
+          
+          const request = createCalculationRequest();
+          const newResults = await calculateResults(request);
+          
+          // Add optimization method info to the results
+          newResults.optimization_method = results.best_strategy;
+          newResults.is_optimized = true;
+      
+          setCalculationResults(newResults);
+          
+          // Add to the multiple comparison results array
+          const resultsWithMetadata = {
+            ...newResults,
+            label: `${strategyNames[results.best_strategy] || results.best_strategy} Optimization`,
+            timestamp: new Date().toISOString(),
+            is_optimized: true
+          };
+          
+          // Add to comparison history
+          setMultipleComparisonResults(prev => {
+            // Create a new array to avoid reference issues
+            const updatedResults = prev ? [...prev] : [];
+            
+            // Check if we've reached the maximum number of comparisons (limit to 5 for UI reasons)
+            if (updatedResults.length >= 5) {
+              updatedResults.shift(); // Remove the oldest result
+            }
+            
+            // Add the new result
+            updatedResults.push(resultsWithMetadata);
+            return updatedResults;
+          });
+          
+          // Show success message
+          setSnackbarMessage('Configuration applied and calculation completed successfully!');
+          setSnackbarSeverity('success');
+          setSnackbarOpen(true);
+          
+          // Navigate to comparison page
+          navigate('/comparison');
+        } catch (err) {
+          setError('Calculation failed. Please check your parameters and try again.');
+          console.error(err);
+          
+          // Show error message
+          setSnackbarMessage('Calculation failed. Please try again.');
+          setSnackbarSeverity('error');
+          setSnackbarOpen(true);
+        } finally {
+          setIsLoading(false);
+        }
+      }, 500);
+    } catch (error) {
+      console.error('Error applying configuration:', error);
+      
+      // Show error message
+      setSnackbarMessage('Error applying configuration. Please try again.');
+      setSnackbarSeverity('error');
+      setSnackbarOpen(true);
     }
-    
-    const a_tranches = results.class_a_maturities.map((maturity, index) => ({
-      maturity_days: maturity,
-      base_rate: results.class_a_rates[index],
-      spread: 0.0, // Default value
-      reinvest_rate: results.class_a_reinvest[index],
-      nominal: results.class_a_nominals[index]
-    }));
-    
-    const b_tranche = {
-      maturity_days: results.class_b_maturity,
-      base_rate: results.class_b_rate,
-      spread: 0.0, // Default value
-      reinvest_rate: results.class_b_reinvest
-    };
-    
-    setTranchesA(a_tranches);
-    setTrancheB(b_tranche);
-    
-    // Show a success message with option to compare
-    const goToCompare = window.confirm('Configuration applied! Would you like to go to Comparison page to compare with previous results?');
-    if (goToCompare) {
-      navigate('/comparison');  // window.location.href yerine navigate kullanıyoruz
-    } else {
-      navigate('/calculation');  // window.location.href yerine navigate kullanıyoruz
+  };
+  
+  // Reset to original values
+  const resetToOriginal = () => {
+    try {
+      if (originalTranchesA && originalTrancheB) {
+        setTranchesA(JSON.parse(JSON.stringify(originalTranchesA)));
+        setTrancheB(JSON.parse(JSON.stringify(originalTrancheB)));
+        
+        // Show success message
+        setSnackbarMessage('Reset to original values successfully.');
+        setSnackbarSeverity('success');
+        setSnackbarOpen(true);
+        
+        // Navigate to calculation page
+        navigate('/calculation');
+      } else {
+        // Show error message
+        setSnackbarMessage('Original configuration not available.');
+        setSnackbarSeverity('warning');
+        setSnackbarOpen(true);
+      }
+    } catch (error) {
+      console.error('Error resetting to original:', error);
+      
+      // Show error message
+      setSnackbarMessage('Error resetting to original values.');
+      setSnackbarSeverity('error');
+      setSnackbarOpen(true);
     }
+  };
+  
+  // Handle snackbar close
+  const handleSnackbarClose = (event, reason) => {
+    if (reason === 'clickaway') {
+      return;
+    }
+    setSnackbarOpen(false);
   };
 
   return (
     <Box>
+      {/* Snackbar for notifications */}
+      <Snackbar
+        open={snackbarOpen}
+        autoHideDuration={6000}
+        onClose={handleSnackbarClose}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert 
+          onClose={handleSnackbarClose} 
+          severity={snackbarSeverity} 
+          sx={{ width: '100%' }}
+        >
+          {snackbarMessage}
+        </Alert>
+      </Snackbar>
+      
       {/* Summary Banner */}
       <Paper 
         sx={{ 
@@ -144,7 +295,7 @@ const OptimizationResults = ({ results }) => {
           </Typography>
           <Chip 
             icon={<CheckCircleIcon />} 
-            label={strategyNames[results.best_strategy]} 
+            label={strategyNames[results.best_strategy] || results.best_strategy} 
             color="secondary" 
           />
         </Box>
@@ -187,14 +338,26 @@ const OptimizationResults = ({ results }) => {
           </Box>
         </Box>
         
-        <Button 
-          variant="contained" 
-          color="secondary"
-          size="large"
-          onClick={applyConfiguration}
-        >
-          Apply This Configuration
-        </Button>
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <Button 
+            variant="contained" 
+            color="secondary"
+            size="large"
+            onClick={applyConfiguration}
+          >
+            Apply This Configuration
+          </Button>
+          
+          <Button 
+            variant="outlined" 
+            color="primary"
+            size="large"
+            startIcon={<ReplayIcon />}
+            onClick={resetToOriginal}
+          >
+            Reset to Original Values
+          </Button>
+        </Box>
       </Paper>
       
       {/* Class B Maturity Calculation */}
@@ -291,7 +454,7 @@ const OptimizationResults = ({ results }) => {
                   <TableCell align="right">{formatPercent(row.classBCouponRate)}</TableCell>
                   <TableCell align="right">{formatPercent(row.minBufferActual)}</TableCell>
                   <TableCell align="right">
-                    {results.results_by_strategy[Object.keys(strategyNames).find(key => strategyNames[key] === row.name)]?.num_a_tranches || '-'}
+                    {results.results_by_strategy[Object.keys(results.results_by_strategy).find(key => (strategyNames[key] || key) === row.name)]?.num_a_tranches || '-'}
                   </TableCell>
                 </TableRow>
               ))}
