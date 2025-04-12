@@ -164,12 +164,23 @@ const OptimizationResults = ({ results }) => {
         maturity_days: results.class_b_maturity,
         base_rate: results.class_b_rate,
         spread: 0.0, // Default value
-        reinvest_rate: results.class_b_reinvest
+        reinvest_rate: results.class_b_reinvest,
+        nominal: results.class_b_nominal  // Bu satırı ekledik - Class B nominal değerini de transfer ediyoruz
       };
       
       // Update form state
       setTranchesA(a_tranches);
       setTrancheB(b_tranche);
+      
+      // Mark the results as from optimization, including optimization method
+      const optimizationData = {
+        is_optimized: true,
+        optimization_method: results.best_strategy,
+        optimization_label: getStrategyDisplayName(results.best_strategy)
+      };
+      
+      // Store optimization data to be used when calculating
+      sessionStorage.setItem('optimizationData', JSON.stringify(optimizationData));
       
       // Show processing message
       setSnackbarMessage('Applying configuration and calculating results...');

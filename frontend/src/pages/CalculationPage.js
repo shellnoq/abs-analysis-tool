@@ -50,10 +50,24 @@ const CalculationPage = () => {
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [snackbarSeverity, setSnackbarSeverity] = useState('success');
+  const [optimizationData, setOptimizationData] = useState(null);
   
   // Auto-calculate when shouldAutoCalculate flag is true
   useEffect(() => {
     if (shouldAutoCalculate) {
+      // Check for optimization data in sessionStorage
+      const optimizationDataStr = sessionStorage.getItem('optimizationData');
+      if (optimizationDataStr) {
+        try {
+          const optData = JSON.parse(optimizationDataStr);
+          setOptimizationData(optData);
+          // We'll use this data in handleCalculate
+          sessionStorage.removeItem('optimizationData'); // Clear after reading
+        } catch (e) {
+          console.error("Error parsing optimization data", e);
+        }
+      }
+      
       handleCalculate();
       setShouldAutoCalculate(false); // Reset the flag after processing
     }
@@ -69,6 +83,13 @@ const CalculationPage = () => {
       setError(null);
       
       const request = createCalculationRequest();
+      
+      // Include optimization data if available
+      if (optimizationData) {
+        request.is_optimized = optimizationData.is_optimized;
+        request.optimization_method = optimizationData.optimization_method;
+      }
+      
       const results = await calculateResults(request);
       
       // Add metadata for tracking and display
@@ -79,8 +100,8 @@ const CalculationPage = () => {
       } else {
         // For optimized calculations, use the optimization method name
         const methodDisplayNames = {
-          'classic': 'Classic Strategy',
-          'genetic': 'Genetic Algorithm',
+          'classic': 'Standard Optimization',
+          'genetic': 'Evolutionary Algorithm',
           'equal': 'Equal Distribution',
           'increasing': 'Increasing by Maturity', 
           'decreasing': 'Decreasing by Maturity',
@@ -136,6 +157,8 @@ const CalculationPage = () => {
       setSnackbarOpen(true);
     } finally {
       setIsLoading(false);
+      // Reset optimization data after use
+      setOptimizationData(null);
     }
   };
   

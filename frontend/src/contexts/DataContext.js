@@ -170,6 +170,7 @@ export const DataProvider = ({ children }) => {
       tranches_a: tranchesA,
       tranche_b: trancheB,
       npv_settings: npvSettings
+      // Optimization data will be added in CalculationPage component
     };
   };
 

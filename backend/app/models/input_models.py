@@ -19,6 +19,7 @@ class TrancheB(BaseModel):
     base_rate: float
     spread: float
     reinvest_rate: float
+    nominal: Optional[float] = None  # Added Optional nominal field
 
 class NPVSettings(BaseModel):
     method: str  # "weighted_avg_rate" or "custom_rate"
@@ -43,3 +44,5 @@ class CalculationRequest(BaseModel):
     tranches_a: List[TrancheA]
     tranche_b: TrancheB
     npv_settings: NPVSettings
+    is_optimized: Optional[bool] = False
+    optimization_method: Optional[str] = None
