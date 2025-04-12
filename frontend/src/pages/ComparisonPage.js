@@ -26,7 +26,7 @@ import {
   ListItemIcon,
   ListItemText,
   IconButton,
-  Tooltip,
+  Tooltip as MuiTooltip,
   Select,
   FormControl,
   InputLabel,
@@ -434,7 +434,7 @@ const ComparisonPage = () => {
                         {new Date(result.timestamp || Date.now()).toLocaleDateString()}
                       </TableCell>
                       <TableCell>
-                        <Tooltip title="Delete">
+                        <MuiTooltip title="Delete">
                           <IconButton 
                             size="small" 
                             color="error" 
@@ -442,7 +442,7 @@ const ComparisonPage = () => {
                           >
                             <DeleteIcon fontSize="small" />
                           </IconButton>
-                        </Tooltip>
+                        </MuiTooltip>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -662,7 +662,6 @@ const ComparisonPage = () => {
                 </ResponsiveContainer>
               </Box>
               
-              // ComparisonPage.js continued
               <Divider sx={{ my: 3 }} />
               
               <TableContainer>
