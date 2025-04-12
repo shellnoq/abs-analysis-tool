@@ -77,6 +77,7 @@ const OptimizationResults = ({ results }) => {
     createCalculationRequest,
     setCalculationResults,
     setMultipleComparisonResults,
+    setShouldAutoCalculate
   } = useData();
   
   const [snackbarOpen, setSnackbarOpen] = useState(false);
@@ -175,67 +176,11 @@ const OptimizationResults = ({ results }) => {
       setSnackbarSeverity('info');
       setSnackbarOpen(true);
       
+      // Set flag to trigger auto-calculation when calculation page loads
+      setShouldAutoCalculate(true);
+      
       // Navigate to calculation page
       navigate('/calculation');
-      
-      // Brief delay to ensure state updates have propagated
-      setTimeout(async () => {
-        try {
-          // Auto-trigger calculation
-          setIsLoading(true);
-          setError(null);
-          
-          const request = createCalculationRequest();
-          const newResults = await calculateResults(request);
-          
-          // Add optimization method info to the results
-          newResults.optimization_method = results.best_strategy;
-          newResults.is_optimized = true;
-      
-          setCalculationResults(newResults);
-          
-          // Add to the multiple comparison results array
-          const resultsWithMetadata = {
-            ...newResults,
-            label: `${getStrategyDisplayName(results.best_strategy)} Optimization`,
-            timestamp: new Date().toISOString(),
-            is_optimized: true
-          };
-          
-          // Add to comparison history
-          setMultipleComparisonResults(prev => {
-            // Create a new array to avoid reference issues
-            const updatedResults = prev ? [...prev] : [];
-            
-            // Check if we've reached the maximum number of comparisons (limit to 5 for UI reasons)
-            if (updatedResults.length >= 5) {
-              updatedResults.shift(); // Remove the oldest result
-            }
-            
-            // Add the new result
-            updatedResults.push(resultsWithMetadata);
-            return updatedResults;
-          });
-          
-          // Show success message
-          setSnackbarMessage('Configuration applied and calculation completed successfully!');
-          setSnackbarSeverity('success');
-          setSnackbarOpen(true);
-          
-          // Navigate to comparison page
-          navigate('/comparison');
-        } catch (err) {
-          setError('Calculation failed. Please check your parameters and try again.');
-          console.error(err);
-          
-          // Show error message
-          setSnackbarMessage('Calculation failed. Please try again.');
-          setSnackbarSeverity('error');
-          setSnackbarOpen(true);
-        } finally {
-          setIsLoading(false);
-        }
-      }, 500);
     } catch (error) {
       console.error('Error applying configuration:', error);
       

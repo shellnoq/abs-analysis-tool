@@ -41,6 +41,9 @@ export const DataProvider = ({ children }) => {
     custom_rate: 40.0
   });
   
+  // Flag for auto-calculating when navigating from optimization page
+  const [shouldAutoCalculate, setShouldAutoCalculate] = useState(false);
+  
   // Results state with localStorage initialization
   const [calculationResults, setCalculationResults] = useState(() => {
     const saved = localStorage.getItem('calculationResults');
@@ -200,6 +203,10 @@ export const DataProvider = ({ children }) => {
     setTrancheB,
     npvSettings,
     setNpvSettings,
+    
+    // Auto-calculate flag
+    shouldAutoCalculate,
+    setShouldAutoCalculate,
     
     // Original values for reset
     originalTranchesA,

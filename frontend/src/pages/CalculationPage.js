@@ -41,22 +41,23 @@ const CalculationPage = () => {
     previousCalculationResults,
     resetToDefaults,
     multipleComparisonResults,
-    setMultipleComparisonResults
+    setMultipleComparisonResults,
+    shouldAutoCalculate,
+    setShouldAutoCalculate
   } = useData();
   
   const [tabValue, setTabValue] = useState(0);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [snackbarSeverity, setSnackbarSeverity] = useState('success');
-  const [autoCalculate, setAutoCalculate] = useState(false);
   
-  // Auto-calculate when navigating from optimization page
+  // Auto-calculate when shouldAutoCalculate flag is true
   useEffect(() => {
-    if (autoCalculate) {
+    if (shouldAutoCalculate) {
       handleCalculate();
-      setAutoCalculate(false);
+      setShouldAutoCalculate(false); // Reset the flag after processing
     }
-  }, [autoCalculate]);
+  }, [shouldAutoCalculate, setShouldAutoCalculate]);
 
   const handleTabChange = (event, newValue) => {
     setTabValue(newValue);
