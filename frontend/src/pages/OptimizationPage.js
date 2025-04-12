@@ -192,6 +192,7 @@ const OptimizationPage = () => {
               startIcon={<RestartAltIcon />}
               onClick={handleReset}
               disabled={isLoading || isOptimizing}
+              sx={{ fontWeight: 500 }}
             >
               Start Over
             </Button>
@@ -202,7 +203,7 @@ const OptimizationPage = () => {
           Choose an optimization method and parameters to find the optimal configuration for your tranches.
         </Typography>
       </Paper>
-
+  
       {error && (
         <Alert 
           severity="error" 
@@ -328,3 +329,12 @@ const OptimizationPage = () => {
 };
 
 export default OptimizationPage;
+
+// Helper function to get a readable name for the optimization method
+const getOptimizationMethodName = (method) => {
+  const methods = {
+    'classic': 'Classic Strategies',
+    'genetic': 'Genetic Algorithm'
+  };
+  return methods[method] || method;
+};

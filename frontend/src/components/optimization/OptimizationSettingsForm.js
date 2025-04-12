@@ -24,8 +24,6 @@ import {
 import InfoIcon from '@mui/icons-material/Info';
 import SpeedIcon from '@mui/icons-material/Speed';
 import TuneIcon from '@mui/icons-material/Tune';
-import TimelineIcon from '@mui/icons-material/Timeline';
-import ShowChartIcon from '@mui/icons-material/ShowChart';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
 
 const OptimizationSettingsForm = ({ values, onChange }) => {
@@ -48,25 +46,13 @@ const OptimizationSettingsForm = ({ values, onChange }) => {
     onChange({ ...values, [field]: value });
   };
 
-  // Method info details
+  // Method info details - only for Classic and Genetic
   const methodInfo = {
     classic: {
       title: "Classic Strategies",
       icon: <TuneIcon sx={{ fontSize: 36, color: theme.palette.primary.main }} />,
       description: "Compares Equal, Increasing, Decreasing, and Middle-Weighted distribution strategies",
       color: theme.palette.primary.main
-    },
-    gradient: {
-      title: "Gradient Descent",
-      icon: <ShowChartIcon sx={{ fontSize: 36, color: theme.palette.secondary.main }} />,
-      description: "Uses gradient-based optimization for faster convergence",
-      color: theme.palette.secondary.main
-    },
-    bayesian: {
-      title: "Bayesian Optimization",
-      icon: <TimelineIcon sx={{ fontSize: 36, color: theme.palette.info.main }} />,
-      description: "Global optimization method requiring fewer computations",
-      color: theme.palette.info.main
     },
     genetic: {
       title: "Genetic Algorithm",
@@ -84,7 +70,7 @@ const OptimizationSettingsForm = ({ values, onChange }) => {
       
       <Grid container spacing={3} sx={{ mb: 4 }}>
         {Object.keys(methodInfo).map((method) => (
-          <Grid item xs={12} sm={6} md={3} key={method}>
+          <Grid item xs={12} sm={6} key={method}>
             <Card 
               elevation={0}
               sx={{ 
@@ -214,85 +200,6 @@ const OptimizationSettingsForm = ({ values, onChange }) => {
               />
               <Typography variant="body2" color="text.secondary">
                 Step size between maturity values
-              </Typography>
-            </FormControl>
-          </Box>
-        )}
-        
-        {optimizationMethod === 'gradient' && (
-          <Box sx={{ mt: 3 }}>
-            <Typography variant="subtitle2" gutterBottom fontWeight="medium">
-              Gradient Descent Settings
-            </Typography>
-            <FormControl fullWidth sx={{ mb: 2 }}>
-              <FormLabel>Learning Rate</FormLabel>
-              <Slider
-                value={values.learning_rate || 0.01}
-                onChange={(e, newValue) => onChange({ ...values, learning_rate: newValue })}
-                min={0.001}
-                max={0.1}
-                step={0.001}
-                valueLabelDisplay="auto"
-                marks={[
-                  { value: 0.001, label: '0.001' },
-                  { value: 0.01, label: '0.01' },
-                  { value: 0.1, label: '0.1' },
-                ]}
-              />
-              <Typography variant="body2" color="text.secondary">
-                Controls the step size in parameter updates (smaller values: slower but more precise)
-              </Typography>
-            </FormControl>
-            
-            <FormControl fullWidth sx={{ mb: 4 }}>
-              <FormLabel>Number of Iterations</FormLabel>
-              <Slider
-                value={values.max_iterations || 100}
-                onChange={(e, newValue) => onChange({ ...values, max_iterations: newValue })}
-                min={10}
-                max={500}
-                step={10}
-                valueLabelDisplay="auto"
-              />
-              <Typography variant="body2" color="text.secondary">
-                Maximum number of iterations for gradient descent algorithm
-              </Typography>
-            </FormControl>
-          </Box>
-        )}
-        
-        {optimizationMethod === 'bayesian' && (
-          <Box sx={{ mt: 3 }}>
-            <Typography variant="subtitle2" gutterBottom fontWeight="medium">
-              Bayesian Optimization Settings
-            </Typography>
-            <FormControl fullWidth sx={{ mb: 2 }}>
-              <FormLabel>Number of Calls</FormLabel>
-              <Slider
-                value={values.n_calls || 50}
-                onChange={(e, newValue) => onChange({ ...values, n_calls: newValue })}
-                min={10}
-                max={100}
-                step={5}
-                valueLabelDisplay="auto"
-              />
-              <Typography variant="body2" color="text.secondary">
-                Higher values give better results but take longer to compute
-              </Typography>
-            </FormControl>
-            
-            <FormControl fullWidth sx={{ mb: 4 }}>
-              <FormLabel>Initial Points</FormLabel>
-              <Slider
-                value={values.n_initial_points || 10}
-                onChange={(e, newValue) => onChange({ ...values, n_initial_points: newValue })}
-                min={5}
-                max={30}
-                step={1}
-                valueLabelDisplay="auto"
-              />
-              <Typography variant="body2" color="text.secondary">
-                Number of initial points to evaluate before optimization starts
               </Typography>
             </FormControl>
           </Box>

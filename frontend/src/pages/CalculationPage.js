@@ -70,9 +70,24 @@ const CalculationPage = () => {
       const request = createCalculationRequest();
       const results = await calculateResults(request);
       
-      // Check if this is a manual calculation (not from optimization)
+      // Add metadata for tracking and display
       if (!results.is_optimized) {
+        // This is a manual calculation
         results.label = 'Manual Calculation';
+        results.timestamp = new Date().toISOString();
+      } else {
+        // For optimized calculations, use the optimization method name
+        const methodDisplayNames = {
+          'classic': 'Classic Strategy',
+          'genetic': 'Genetic Algorithm',
+          'equal': 'Equal Distribution',
+          'increasing': 'Increasing by Maturity', 
+          'decreasing': 'Decreasing by Maturity',
+          'middle_weighted': 'Middle Weighted'
+        };
+        
+        const methodName = results.optimization_method || 'Optimized';
+        results.label = `${methodDisplayNames[methodName] || methodName} Optimization`;
         results.timestamp = new Date().toISOString();
       }
       
@@ -92,12 +107,9 @@ const CalculationPage = () => {
             updatedResults.shift(); // Remove the oldest result
           }
           
-          // Add the new result
+          // Add the new result with its label
           updatedResults.push({
             ...results,
-            label: results.is_optimized 
-              ? `${results.optimization_method || 'Optimized'} Calculation` 
-              : 'Manual Calculation',
             timestamp: new Date().toISOString()
           });
           

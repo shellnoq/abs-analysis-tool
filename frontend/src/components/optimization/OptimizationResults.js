@@ -1,5 +1,5 @@
 // frontend/src/components/optimization/OptimizationResults.js
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Box, 
   Typography, 
@@ -39,9 +39,28 @@ const strategyNames = {
   increasing: "Increasing by Maturity",
   decreasing: "Decreasing by Maturity",
   middle_weighted: "Middle Tranches Weighted",
-  gradient: "Gradient Descent",
-  bayesian: "Bayesian Optimization",
+  classic: "Classic Strategy",
   genetic: "Genetic Algorithm"
+};
+
+// Helper function to convert number to Roman numeral
+const toRoman = (num) => {
+  const romanNumerals = [
+    { value: 10, symbol: 'X' },
+    { value: 9, symbol: 'IX' },
+    { value: 5, symbol: 'V' },
+    { value: 4, symbol: 'IV' },
+    { value: 1, symbol: 'I' }
+  ];
+  
+  let roman = '';
+  for (let i = 0; i < romanNumerals.length; i++) {
+    while (num >= romanNumerals[i].value) {
+      roman += romanNumerals[i].symbol;
+      num -= romanNumerals[i].value;
+    }
+  }
+  return roman;
 };
 
 const OptimizationResults = ({ results }) => {
@@ -62,13 +81,13 @@ const OptimizationResults = ({ results }) => {
     multipleComparisonResults
   } = useData();
   
-  const [snackbarOpen, setSnackbarOpen] = React.useState(false);
-  const [snackbarMessage, setSnackbarMessage] = React.useState('');
-  const [snackbarSeverity, setSnackbarSeverity] = React.useState('success');
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarSeverity, setSnackbarSeverity] = useState('success');
   
   // Format currency values
   const formatCurrency = (value) => {
-    return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(value);
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'TRY' }).format(value);
   };
   
   // Format percentage values
@@ -76,15 +95,20 @@ const OptimizationResults = ({ results }) => {
     return `${value.toFixed(2)}%`;
   };
   
+  // Helper function to get strategy display name
+  const getStrategyDisplayName = (strategy) => {
+    return strategyNames[strategy] || strategy.charAt(0).toUpperCase() + strategy.slice(1);
+  };
+  
   // Prepare data for pie chart
   const pieData = [
     ...results.class_a_nominals.map((nominal, index) => ({
-      name: `Class A${index + 1}`,
+      name: `Class A${toRoman(index + 1)}`,
       value: nominal,
       color: theme.palette.primary.main
     })),
     { 
-      name: 'Class B1', 
+      name: `Class B${toRoman(1)}`, 
       value: results.class_b_nominal,
       color: theme.palette.secondary.main
     }
@@ -93,13 +117,13 @@ const OptimizationResults = ({ results }) => {
   // Prepare data for maturity distribution chart
   const maturityData = [
     ...results.class_a_maturities.map((maturity, index) => ({
-      name: `Class A${index + 1}`,
+      name: `Class A${toRoman(index + 1)}`,
       maturity,
       nominal: results.class_a_nominals[index],
       type: 'Class A'
     })),
     {
-      name: 'Class B1',
+      name: `Class B${toRoman(1)}`,
       maturity: results.class_b_maturity,
       nominal: results.class_b_nominal,
       type: 'Class B'
@@ -114,7 +138,7 @@ const OptimizationResults = ({ results }) => {
   
   // Strategy comparison data
   const strategyResultsData = Object.entries(results.results_by_strategy).map(([strategy, data]) => ({
-    name: strategyNames[strategy] || strategy,
+    name: getStrategyDisplayName(strategy),
     totalPrincipal: data.total_principal,
     classBCouponRate: data.class_b_coupon_rate,
     minBufferActual: data.min_buffer_actual,
@@ -175,7 +199,7 @@ const OptimizationResults = ({ results }) => {
           // Add to the multiple comparison results array
           const resultsWithMetadata = {
             ...newResults,
-            label: `${strategyNames[results.best_strategy] || results.best_strategy} Optimization`,
+            label: `${getStrategyDisplayName(results.best_strategy)} Optimization`,
             timestamp: new Date().toISOString(),
             is_optimized: true
           };
@@ -295,7 +319,7 @@ const OptimizationResults = ({ results }) => {
           </Typography>
           <Chip 
             icon={<CheckCircleIcon />} 
-            label={strategyNames[results.best_strategy] || results.best_strategy} 
+            label={getStrategyDisplayName(results.best_strategy)} 
             color="secondary" 
           />
         </Box>
@@ -454,7 +478,7 @@ const OptimizationResults = ({ results }) => {
                   <TableCell align="right">{formatPercent(row.classBCouponRate)}</TableCell>
                   <TableCell align="right">{formatPercent(row.minBufferActual)}</TableCell>
                   <TableCell align="right">
-                    {results.results_by_strategy[Object.keys(results.results_by_strategy).find(key => (strategyNames[key] || key) === row.name)]?.num_a_tranches || '-'}
+                    {results.results_by_strategy[Object.keys(results.results_by_strategy).find(key => (getStrategyDisplayName(key)) === row.name)]?.num_a_tranches || '-'}
                   </TableCell>
                 </TableRow>
               ))}
@@ -533,7 +557,7 @@ const OptimizationResults = ({ results }) => {
             <TableBody>
               {results.class_a_maturities.map((maturity, index) => (
                 <TableRow key={index}>
-                  <TableCell>Class A{index + 1}</TableCell>
+                  <TableCell>Class A{toRoman(index + 1)}</TableCell>
                   <TableCell align="right">{maturity}</TableCell>
                   <TableCell align="right">{results.class_a_rates[index].toFixed(2)}</TableCell>
                   <TableCell align="right">{results.class_a_reinvest[index].toFixed(2)}</TableCell>
@@ -571,7 +595,7 @@ const OptimizationResults = ({ results }) => {
             </TableHead>
             <TableBody>
               <TableRow>
-                <TableCell>Class B1</TableCell>
+                <TableCell>Class B{toRoman(1)}</TableCell>
                 <TableCell align="right">{results.class_b_maturity}</TableCell>
                 <TableCell align="right">{results.class_b_rate.toFixed(2)}</TableCell>
                 <TableCell align="right">{results.class_b_reinvest.toFixed(2)}</TableCell>

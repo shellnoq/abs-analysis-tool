@@ -121,22 +121,17 @@ export const DataProvider = ({ children }) => {
   
   // Optimization settings - Updated with new method options
   const [optimizationSettings, setOptimizationSettings] = useState({
-    optimization_method: 'classic', // Yeni alan
+    optimization_method: 'classic', // Default to classic
     a_tranches_range: [2, 6],
     maturity_range: [32, 365],
     maturity_step: 10,
     min_class_b_percent: 10.0,
     target_class_b_coupon_rate: 30.0,
     additional_days_for_class_b: 10,
-    // Gradient descent için
-    learning_rate: 0.01,
-    max_iterations: 100,
-    // Genetik algoritma için
+    // Genetic algorithm settings
     population_size: 50,
-    num_generations: 40,
-    // Bayesian için
-    n_calls: 50,
-    n_initial_points: 10
+    num_generations: 40
+    // Removed Gradient descent and Bayesian options
   });
 
   // Helper function to reset to default values
