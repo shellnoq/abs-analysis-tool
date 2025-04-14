@@ -106,11 +106,11 @@ def adjust_class_a_nominals_for_target_coupon(
     start_date: pd.Timestamp, 
     df_temp: pd.DataFrame, 
     min_buffer: float,
-    max_allowed_diff: float = 1.0
+    max_allowed_diff: float = 0.5  # Reduced from 1.0 to 0.5 for tighter matching
 ) -> Tuple[List[float], bool]:
     """
     Iteratively adjust Class A nominal amounts to achieve a target coupon rate for Class B
-    using an adaptive binary search approach.
+    using an improved adaptive search approach for faster convergence.
     
     Args:
         a_nominals: List of Class A nominal amounts
@@ -133,11 +133,14 @@ def adjust_class_a_nominals_for_target_coupon(
     # Initial parameters
     original_a_total = sum(a_nominals)
     original_proportions = [n / original_a_total for n in a_nominals]
-    max_iterations = 50
+    max_iterations = 30  # Reduced from 50 to 30 for faster execution
     
     # Adjustment limits 
     min_adjustment = 0.001  # Allow down to 0.1% of original
     max_adjustment = 3.0    # Allow up to 300% of original
+    
+    # Initialize adjustment direction variable to avoid errors
+    adjustment_direction = 0  # Neutral at start
     
     logger.info(f"Starting adjustment with target coupon rate: {target_coupon_rate:.2f}%")
     logger.info(f"Original Class A total: {original_a_total:,.2f}, Class B nominal: {class_b_nominal:,.2f}")
@@ -151,17 +154,54 @@ def adjust_class_a_nominals_for_target_coupon(
         )
         
         logger.info(f"Baseline - Coupon rate: {baseline_coupon_rate:.2f}%, Buffer: {baseline_min_buffer:.2f}%")
+        
+        # Direct ratio-based initial approximation for faster convergence
+        if baseline_coupon_rate > 0:
+            direct_adjustment = target_coupon_rate / baseline_coupon_rate
+            # Keep within limits
+            direct_adjustment = max(min_adjustment, min(max_adjustment, direct_adjustment))
+            
+            # Test this direct approximation immediately
+            test_nominals = [original_proportions[i] * original_a_total * direct_adjustment 
+                           for i in range(len(a_nominals))]
+            
+            # Round to nearest 1000 and ensure no zeros
+            test_nominals = [max(1000, round(n / 1000) * 1000) for n in test_nominals]
+            
+            direct_coupon_rate, direct_min_buffer = evaluate_coupon_rate(
+                test_nominals, class_b_nominal, class_b_maturity, 
+                a_maturity_days, a_base_rates, a_reinvest_rates,
+                b_base_rate, b_reinvest_rate, start_date, df_temp
+            )
+            
+            # If the direct approach gives a good result, use it immediately
+            if direct_min_buffer >= min_buffer and abs(direct_coupon_rate - target_coupon_rate) <= max_allowed_diff:
+                logger.info(f"Direct approach successful - Coupon rate: {direct_coupon_rate:.2f}%, "
+                      f"diff: {abs(direct_coupon_rate - target_coupon_rate):.2f}%, "
+                      f"min buffer: {direct_min_buffer:.2f}%")
+                return test_nominals, True
+                
+            # If not perfect but close, use as starting point
+            current_adjustment = direct_adjustment
+            # Set direction based on direct approach result
+            adjustment_direction = 1 if direct_coupon_rate < target_coupon_rate else -1
+            logger.info(f"Using direct approach starting point: {direct_adjustment:.4f}, "
+                  f"resulting coupon: {direct_coupon_rate:.2f}%")
+        else:
+            # Fallback to original approach if baseline is zero or negative
+            logger.info("Baseline coupon is zero or negative, using standard approach")
+            current_adjustment = 1.0
     except Exception as e:
         logger.error(f"Error evaluating baseline: {str(e)}")
         return a_nominals, False
     
-    # Determine initial direction and starting adjustment
-    if baseline_coupon_rate < target_coupon_rate:
+    # Determine initial direction if not set by direct approach
+    if baseline_coupon_rate < target_coupon_rate and adjustment_direction == 0:
         # If baseline coupon is too low, we need to increase Class A nominals
         logger.info("Baseline coupon is lower than target - will increase Class A nominals")
         adjustment_direction = 1  # Increase
         current_adjustment = 1.2  # Start with 20% increase
-    else:
+    elif baseline_coupon_rate > target_coupon_rate and adjustment_direction == 0:
         # If baseline coupon is too high, we need to decrease Class A nominals
         logger.info("Baseline coupon is higher than target - will decrease Class A nominals")
         adjustment_direction = -1  # Decrease
@@ -185,7 +225,11 @@ def adjust_class_a_nominals_for_target_coupon(
     best_nominals = a_nominals.copy()
     success = False
     
-    # Adaptive binary search with safeguards
+    # Store previous results for interpolation
+    last_adjustment = current_adjustment
+    last_coupon_rate = baseline_coupon_rate
+    
+    # Improved adaptive search with interpolation
     for iteration in range(max_iterations):
         # Apply current adjustment factor to all Class A nominals
         current_nominals = [original_proportions[i] * original_a_total * current_adjustment 
@@ -221,37 +265,61 @@ def adjust_class_a_nominals_for_target_coupon(
                           f"diff: {rate_diff:.2f}%, min buffer: {min_buffer_actual:.2f}%")
                     
                     # If very close to target, we can exit early
-                    if rate_diff < 0.2:
+                    if rate_diff < 0.1:  # Tightened from 0.2 to 0.1
                         break
             
-            # Adaptive adjustment based on current results
+            # Linear interpolation for faster convergence when we have two datapoints
+            if iteration > 0 and last_coupon_rate != coupon_rate:
+                # Calculate slope of coupon rate change vs adjustment change
+                rate_slope = (coupon_rate - last_coupon_rate) / (current_adjustment - last_adjustment)
+                
+                if abs(rate_slope) > 0.001:  # Avoid division by near-zero
+                    # Estimate adjustment needed to hit target using linear interpolation
+                    estimated_adjustment = last_adjustment + (target_coupon_rate - last_coupon_rate) / rate_slope
+                    logger.info(f"Linear interpolation suggests adjustment: {estimated_adjustment:.4f}")
+                    
+                    # Keep within reasonable bounds
+                    next_adjustment = max(min_adjustment, min(max_adjustment, estimated_adjustment))
+                    
+                    # Only use interpolation if it's not too extreme
+                    if 0.5 * current_adjustment <= next_adjustment <= 2.0 * current_adjustment:
+                        # Store current values before updating
+                        last_adjustment = current_adjustment
+                        last_coupon_rate = coupon_rate
+                        
+                        # Apply interpolated adjustment
+                        current_adjustment = next_adjustment
+                        continue  # Skip the standard adjustment logic below
+            
+            # Store current values for next interpolation
+            last_adjustment = current_adjustment
+            last_coupon_rate = coupon_rate
+            
+            # Standard adaptive adjustment based on current results
             if coupon_rate < target_coupon_rate:
                 if adjustment_direction == 1:
-                    # We're going in the right direction (increasing), make smaller adjustments
-                    current_adjustment *= 1.1  # Increase by 10%
+                    # We're going in the right direction (increasing), make more aggressive adjustments
+                    coupon_ratio = target_coupon_rate / coupon_rate
+                    current_adjustment *= min(1.5, coupon_ratio)  # More aggressive increase
                 else:
                     # We went too far, reverse direction and use smaller step
                     adjustment_direction = 1
-                    current_adjustment = 1.0 + (1.0 - current_adjustment) * 0.5
+                    current_adjustment = 1.0 + (1.0 - current_adjustment) * 0.3  # Smaller bounce back
             else:  # coupon_rate > target_coupon_rate
                 if adjustment_direction == -1:
-                    # We're going in the right direction (decreasing), make smaller adjustments
-                    if (coupon_rate / target_coupon_rate) > 2:
-                        # Still far from target, be more aggressive
-                        current_adjustment *= 0.7  # Reduce by 30%
-                    else:
-                        # Getting closer, be more careful
-                        current_adjustment *= 0.9  # Reduce by 10%
+                    # We're going in the right direction (decreasing), be more aggressive
+                    coupon_ratio = coupon_rate / target_coupon_rate
+                    current_adjustment *= max(0.5, 1/coupon_ratio)  # More aggressive decrease
                 else:
                     # We went too far, reverse direction and use smaller step
                     adjustment_direction = -1
-                    current_adjustment = 1.0 - (current_adjustment - 1.0) * 0.5
+                    current_adjustment = 1.0 - (current_adjustment - 1.0) * 0.3  # Smaller bounce back
             
             # Ensure adjustment is within bounds
             current_adjustment = max(min_adjustment, min(max_adjustment, current_adjustment))
             
-            # Check if we're making too small changes and break if needed
-            if abs(current_adjustment - 1.0) < 0.0001 and iteration > 10:
+            # Check if we're making too small changes and break early if we're stuck
+            if abs(current_adjustment - last_adjustment) < 0.001 and iteration > 10:
                 logger.info("Adjustment factor converged, stopping iterations")
                 break
                 
@@ -440,6 +508,16 @@ def evaluate_params(
     Returns:
         Dictionary containing evaluation results
     """
+    # Fast rejection for obviously invalid inputs
+    if not maturities or not nominals or len(maturities) != len(nominals):
+        return {
+            'is_valid': False,
+            'score': 0,
+            'results': None,
+            'error': "Invalid input dimensions",
+            'b_nominal': 0
+        }
+    
     # Convert to lists for key operations and ensure types are correct
     maturities = [int(m) for m in maturities]  # Ensure integers
     nominals = list(nominals)
@@ -596,9 +674,10 @@ def evaluate_params(
             'num_a_tranches': len(a_maturity_days)
         }
         
-        # Calculate weighted score based on principal and coupon rate match
+        # Improved scoring - give higher weight to coupon rate match
         coupon_rate_diff = abs(class_b_coupon_rate - target_class_b_coupon_rate)
-        coupon_rate_weight = 1.0 / (1.0 + coupon_rate_diff / 10.0)  # Penalty for difference
+        # Exponential penalty for coupon rate difference - sharper dropoff
+        coupon_rate_weight = np.exp(-coupon_rate_diff / 3.0)  
         weighted_principal = result_dict['total_principal'] * coupon_rate_weight
         
         return {
@@ -652,8 +731,8 @@ def perform_optimization(df: pd.DataFrame, general_settings: GeneralSettings, op
     optimization_progress.update(step=5, 
                                message=f"Selected strategies: {', '.join(selected_strategies)}")
     
-    # Set maximum allowed difference for coupon rate
-    max_allowed_diff = 1.0  # Maximum 1% difference
+    # Set maximum allowed difference for coupon rate - tightened for better matching
+    max_allowed_diff = 0.5  # Maximum 0.5% difference (reduced from 1.0%)
     
     optimization_progress.update(step=5, 
                                message=f"Target coupon rate: {target_class_b_coupon_rate}%, preparing data...")
@@ -752,21 +831,31 @@ def perform_optimization(df: pd.DataFrame, general_settings: GeneralSettings, op
             if all(sorted_maturities[i+1] - sorted_maturities[i] >= min_gap for i in range(len(sorted_maturities)-1)):
                 maturity_combinations.append(sorted_maturities)
         
-        # If too many combinations, sample a reasonable number
-        max_samples = 30
+        # More intelligent sampling of maturity combinations
+        # If too many combinations, use stratified sampling
+        max_samples = 20  # Reduced from 30 to 20 for faster processing
         if len(maturity_combinations) > max_samples:
-            sampled_indices = np.random.choice(len(maturity_combinations), max_samples, replace=False)
-            maturity_combinations = [maturity_combinations[i] for i in sampled_indices]
+            # Sort by average maturity and select samples from different parts of the distribution
+            sorted_combinations = sorted(maturity_combinations, 
+                                        key=lambda x: sum(x)/len(x))
+            step = len(sorted_combinations) // max_samples
+            sampled_indices = [i * step for i in range(max_samples)]
+            maturity_combinations = [sorted_combinations[i] for i in sampled_indices]
         
         # Calculate progress step for this set of combinations
         combo_count = len(maturity_combinations)
         combo_progress_step = 10 / max(1, combo_count)
         
+        # Track consecutive failures to optimize performance
+        consecutive_failures = 0
+        max_consecutive_failures = 5  # Fast-fail threshold
+        
         # Process maturity combinations
         for combo_idx, maturities in enumerate(maturity_combinations):
             combo_progress = tranche_progress_base + (combo_idx * combo_progress_step)
             
-            if combo_idx % 1 == 0:  # Update every 1 combinations to avoid too many updates
+            # Skip updates for most combinations to reduce overhead
+            if combo_idx % 5 == 0:  # Update every 5 combinations
                 optimization_progress.update(
                     step=int(combo_progress),
                     message=f"Testing maturity combination {combo_idx+1}/{combo_count}: {maturities}"
@@ -803,7 +892,10 @@ def perform_optimization(df: pd.DataFrame, general_settings: GeneralSettings, op
                 distribution_strategies = ["equal", "increasing", "decreasing", "middle_weighted"]
                 logger.warning(f"No valid strategies selected, using all: {distribution_strategies}")
             
-            # Process each strategy - FIXED: Loop through each strategy
+            # Reset consecutive failures counter for each new maturity combination
+            consecutive_failures = 0
+            
+            # Process each strategy
             for strategy in distribution_strategies:
                 # Calculate Class B nominal based on minimum percentage
                 total_nominal_amount = total_a_nominal / (1 - min_class_b_percent/100)
@@ -871,6 +963,11 @@ def perform_optimization(df: pd.DataFrame, general_settings: GeneralSettings, op
                 
                 if success:
                     a_nominals = adjusted_a_nominals
+                    # Reset consecutive failures counter on success
+                    consecutive_failures = 0
+                else:
+                    # Increment consecutive failures counter
+                    consecutive_failures += 1
                 
                 # Evaluate the result
                 eval_result = evaluate_params(
@@ -891,8 +988,9 @@ def perform_optimization(df: pd.DataFrame, general_settings: GeneralSettings, op
                     # Calculate difference from target coupon rate
                     coupon_rate_diff = abs(class_b_coupon_rate - target_class_b_coupon_rate)
                     
-                    # Calculate weighted score based on principal and coupon rate match
-                    coupon_rate_weight = np.exp(-coupon_rate_diff / 5.0)  # Stronger penalty for rate difference
+                    # Improved scoring function
+                    # Exponential penalty for rate difference - more severe penalty for larger differences
+                    coupon_rate_weight = np.exp(-coupon_rate_diff / 2.0)  # Stronger penalty
                     weighted_principal = total_principal * coupon_rate_weight
                     
                     # Check if this is the best solution for this strategy
@@ -905,13 +1003,16 @@ def perform_optimization(df: pd.DataFrame, general_settings: GeneralSettings, op
                            weighted_principal > best_weighted_principal_by_strategy[strategy]:
                             is_better = True
                     elif coupon_rate_diff <= max_allowed_diff and \
-                         weighted_principal > best_weighted_principal_by_strategy[strategy]:
-                        # If within allowed difference and better weighted principal
+                         weighted_principal > best_weighted_principal_by_strategy[strategy] * 1.2:  # Must be significantly better
+                        # If within allowed difference and much better weighted principal
                         is_better = True
                     
                     if is_better:
                         best_coupon_rate_diff_by_strategy[strategy] = coupon_rate_diff
                         best_weighted_principal_by_strategy[strategy] = weighted_principal
+                        
+                        # Reset consecutive failures on finding a good solution
+                        consecutive_failures = 0
                         
                         best_params_by_strategy[strategy] = {
                             'num_a_tranches': num_a_tranches,
@@ -954,12 +1055,27 @@ def perform_optimization(df: pd.DataFrame, general_settings: GeneralSettings, op
                 current_iteration += 1
                 
                 # Update progress periodically
-                if current_iteration % 10 == 0:
+                if current_iteration % 20 == 0:  # Reduced frequency of updates
                     progress_percent = min(80, 20 + int(current_iteration / total_iterations * 60))
                     optimization_progress.update(
                         step=progress_percent,
                         message=f"Completed {current_iteration} iterations out of approximately {total_iterations}"
                     )
+                
+                # Check if we should skip remaining strategies for this maturity combination
+                if consecutive_failures >= max_consecutive_failures:
+                    optimization_progress.update(
+                        message=f"Skipping remaining strategies for this maturity combination due to {consecutive_failures} consecutive failures"
+                    )
+                    break
+            
+            # Early termination if we've found very good solutions across multiple strategies
+            good_strategies_count = sum(1 for diff in best_coupon_rate_diff_by_strategy.values() if diff <= 0.2)
+            if good_strategies_count >= 2 and combo_idx > combo_count // 4:
+                optimization_progress.update(
+                    message=f"Found {good_strategies_count} very good solutions (diff <= 0.2%), ending search early"
+                )
+                break
     
     # Update progress to preparing results phase
     optimization_progress.update(
@@ -979,10 +1095,11 @@ def perform_optimization(df: pd.DataFrame, general_settings: GeneralSettings, op
         )
         raise ValueError("No valid configuration found. Try adjusting optimization parameters.")
     
-    # Find best overall strategy prioritizing coupon rate match
+    # Improved strategy selection with stronger weight on coupon rate match
+    # Find best overall strategy prioritizing coupon rate match even more
     best_overall_strategy = min(
         valid_strategies.items(),
-        key=lambda x: (x[1]['coupon_rate_diff'], -x[1]['total_principal'])
+        key=lambda x: (x[1]['coupon_rate_diff'] * 3, -x[1]['total_principal'])  # Triple weight on diff
     )[0]
     
     # Get best parameters and results

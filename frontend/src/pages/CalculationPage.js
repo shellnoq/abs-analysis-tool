@@ -96,6 +96,7 @@ const CalculationPage = () => {
       if (!results.is_optimized) {
         // This is a manual calculation
         results.label = 'Manual Calculation';
+        results.method_type = 'manual';
         results.timestamp = new Date().toISOString();
       } else {
         // For optimized calculations, use the optimization method name
@@ -110,6 +111,7 @@ const CalculationPage = () => {
         
         const methodName = results.optimization_method || 'Optimized';
         results.label = `${methodDisplayNames[methodName] || methodName} Optimization`;
+        results.method_type = methodName === 'genetic' ? 'genetic' : 'standard';
         results.timestamp = new Date().toISOString();
       }
       
@@ -124,17 +126,24 @@ const CalculationPage = () => {
           // Create a new array to avoid reference issues
           const updatedResults = prev ? [...prev] : [];
           
-          // Check if we've reached the maximum number of comparisons (limit to 5 for UI reasons)
-          if (updatedResults.length >= 5) {
-            updatedResults.shift(); // Remove the oldest result
+          // Check if we already have a result of the same type
+          const existingIndex = updatedResults.findIndex(r => 
+            r.method_type === results.method_type
+          );
+          
+          // If we have a result of this type, replace it
+          if (existingIndex >= 0) {
+            updatedResults[existingIndex] = { ...results };
+          } else {
+            // Otherwise add it to the array
+            // Check if we've reached the maximum number of comparisons (limit to 5 for UI reasons)
+            if (updatedResults.length >= 5) {
+              updatedResults.shift(); // Remove the oldest result
+            }
+            updatedResults.push({ ...results });
           }
           
-          // Add the new result with its label
-          updatedResults.push({
-            ...results,
-            timestamp: new Date().toISOString()
-          });
-          
+          console.log("Saving calculation to comparison results:", results.method_type);
           return updatedResults;
         });
       }

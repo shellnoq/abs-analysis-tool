@@ -1,4 +1,5 @@
-// frontend/src/contexts/DataContext.js
+// src/contexts/DataContext.js
+
 import React, { createContext, useState, useContext, useEffect } from 'react';
 
 const DataContext = createContext();
@@ -60,7 +61,12 @@ export const DataProvider = ({ children }) => {
     return saved ? JSON.parse(saved) : null;
   });
   
-  // New state for multiple comparison results
+  // Merged state for saved comparison results and multiple comparison results
+  const [savedResults, setSavedResults] = useState(() => {
+    const saved = localStorage.getItem('savedResults');
+    return saved ? JSON.parse(saved) : [];
+  });
+  
   const [multipleComparisonResults, setMultipleComparisonResults] = useState(() => {
     const saved = localStorage.getItem('multipleComparisonResults');
     return saved ? JSON.parse(saved) : [];
@@ -69,22 +75,81 @@ export const DataProvider = ({ children }) => {
   // Wrap setState functions to also update localStorage
   const setCalculationResultsWithStorage = (results) => {
     setCalculationResults(results);
-    localStorage.setItem('calculationResults', JSON.stringify(results));
+    if (results) {
+      localStorage.setItem('calculationResults', JSON.stringify(results));
+    } else {
+      localStorage.removeItem('calculationResults');
+    }
   };
   
   const setOptimizationResultsWithStorage = (results) => {
     setOptimizationResults(results);
-    localStorage.setItem('optimizationResults', JSON.stringify(results));
+    if (results) {
+      localStorage.setItem('optimizationResults', JSON.stringify(results));
+    } else {
+      localStorage.removeItem('optimizationResults');
+    }
   };
   
   const setPreviousCalculationResultsWithStorage = (results) => {
     setPreviousCalculationResults(results);
-    localStorage.setItem('previousCalculationResults', JSON.stringify(results));
+    if (results) {
+      localStorage.setItem('previousCalculationResults', JSON.stringify(results));
+    } else {
+      localStorage.removeItem('previousCalculationResults');
+    }
+  };
+  
+  const setSavedResultsWithStorage = (results) => {
+    setSavedResults(results);
+    if (results && results.length > 0) {
+      localStorage.setItem('savedResults', JSON.stringify(results));
+    } else {
+      localStorage.removeItem('savedResults');
+    }
   };
   
   const setMultipleComparisonResultsWithStorage = (results) => {
-    setMultipleComparisonResults(results);
-    localStorage.setItem('multipleComparisonResults', JSON.stringify(results));
+    // Ensure it's an array
+    const updatedResults = Array.isArray(results) ? [...results] : [];
+    setMultipleComparisonResults(updatedResults);
+    localStorage.setItem('multipleComparisonResults', JSON.stringify(updatedResults));
+    console.log("Updated multipleComparisonResults:", updatedResults);
+  };
+  
+  // Function to save a result with a name
+  const saveResult = (result, name, methodType) => {
+    if (!result) return false;
+    
+    // Create a copy of the result with additional metadata
+    const resultToSave = {
+      ...result,
+      id: Date.now().toString(),
+      savedName: name,
+      timestamp: new Date().toISOString(),
+      methodType: methodType || result.method_type || 'manual'
+    };
+    
+    // Add or update in savedResults array
+    setSavedResultsWithStorage([...savedResults, resultToSave]);
+    return true;
+  };
+  
+  // Function to delete a saved result
+  const deleteSavedResult = (resultId) => {
+    const updatedResults = savedResults.filter(result => result.id !== resultId);
+    setSavedResultsWithStorage(updatedResults);
+  };
+  
+  // Clear all saved results
+  const clearSavedResults = () => {
+    setSavedResultsWithStorage([]);
+  };
+  
+  // Clear comparison data function
+  const clearComparisonData = () => {
+    setMultipleComparisonResultsWithStorage([]);
+    console.log("Comparison data cleared");
   };
   
   // Store original values when first loading
@@ -97,32 +162,7 @@ export const DataProvider = ({ children }) => {
     }
   }, []);
   
-  // Update localStorage when state changes
-  useEffect(() => {
-    if (calculationResults) {
-      localStorage.setItem('calculationResults', JSON.stringify(calculationResults));
-    }
-  }, [calculationResults]);
-  
-  useEffect(() => {
-    if (optimizationResults) {
-      localStorage.setItem('optimizationResults', JSON.stringify(optimizationResults));
-    }
-  }, [optimizationResults]);
-  
-  useEffect(() => {
-    if (previousCalculationResults) {
-      localStorage.setItem('previousCalculationResults', JSON.stringify(previousCalculationResults));
-    }
-  }, [previousCalculationResults]);
-  
-  useEffect(() => {
-    if (multipleComparisonResults) {
-      localStorage.setItem('multipleComparisonResults', JSON.stringify(multipleComparisonResults));
-    }
-  }, [multipleComparisonResults]);
-  
-  // Optimization settings - Updated with new method options
+  // Optimization settings
   const [optimizationSettings, setOptimizationSettings] = useState({
     optimization_method: 'classic', // Default to classic
     a_tranches_range: [2, 6],
@@ -150,13 +190,9 @@ export const DataProvider = ({ children }) => {
   // Helper function to clear data
   const clearData = () => {
     setCashFlowData(null);
-    setCalculationResultsWithStorage(null); // Use wrapper
-    setOptimizationResultsWithStorage(null); // Use wrapper
+    setCalculationResultsWithStorage(null);
+    setOptimizationResultsWithStorage(null);
     setError(null);
-    
-    // Also clear from localStorage
-    localStorage.removeItem('calculationResults');
-    localStorage.removeItem('optimizationResults');
   };
 
   // Create calculation request payload
@@ -221,9 +257,17 @@ export const DataProvider = ({ children }) => {
     previousCalculationResults,
     setPreviousCalculationResults: setPreviousCalculationResultsWithStorage,
     
-    // Multiple comparison results
+    // Saved results for comparison (from first file)
+    savedResults,
+    setSavedResults: setSavedResultsWithStorage,
+    saveResult,
+    deleteSavedResult,
+    clearSavedResults,
+    
+    // Multiple comparison results (from second file)
     multipleComparisonResults,
     setMultipleComparisonResults: setMultipleComparisonResultsWithStorage,
+    clearComparisonData,
     
     // Optimization settings
     optimizationSettings,
