@@ -1,5 +1,5 @@
 // src/components/optimization/OptimizationResults.js
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Box, 
   Typography, 
@@ -14,7 +14,18 @@ import {
   Chip,
   useTheme,
   Snackbar,
-  Alert
+  Alert,
+  Dialog, 
+  DialogActions, 
+  DialogContent, 
+  DialogContentText, 
+  DialogTitle, 
+  TextField,
+  FormControl,
+  FormLabel,
+  RadioGroup,
+  FormControlLabel,
+  Radio
 } from '@mui/material';
 import { 
   BarChart, Bar, 
@@ -24,6 +35,7 @@ import {
 } from 'recharts';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ReplayIcon from '@mui/icons-material/Replay';
+import SaveIcon from '@mui/icons-material/Save';
 import { useData } from '../../contexts/DataContext';
 import { useNavigate } from 'react-router-dom';
 import { calculateResults } from '../../services/apiService';
@@ -76,6 +88,7 @@ const OptimizationResults = ({ results }) => {
     setError,
     createCalculationRequest,
     setCalculationResults,
+    saveResult, // Add this
     setMultipleComparisonResults,
     setShouldAutoCalculate
   } = useData();
@@ -83,6 +96,18 @@ const OptimizationResults = ({ results }) => {
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [snackbarSeverity, setSnackbarSeverity] = useState('success');
+  
+  // Add these new states for save functionality
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [resultName, setResultName] = useState('');
+  const [selectedMethodType, setSelectedMethodType] = useState('');
+  
+  // Update useEffect to set initial method type based on results
+  useEffect(() => {
+    if (results && results.best_strategy) {
+      setSelectedMethodType(results.best_strategy === 'genetic' ? 'genetic' : 'standard');
+    }
+  }, [results]);
   
   // Format currency values
   const formatCurrency = (value) => {
@@ -97,6 +122,46 @@ const OptimizationResults = ({ results }) => {
   // Helper function to get strategy display name
   const getStrategyDisplayName = (strategy) => {
     return strategyNames[strategy] || strategy.charAt(0).toUpperCase() + strategy.slice(1);
+  };
+  
+  // Add these new functions for save functionality
+  const handleSaveClick = () => {
+    setSaveDialogOpen(true);
+    // Default name based on the optimization method
+    const defaultName = `${getStrategyDisplayName(results.best_strategy)} Optimization`;
+    setResultName(defaultName);
+    
+    // Set default method type based on results
+    setSelectedMethodType(results.best_strategy === 'genetic' ? 'genetic' : 'standard');
+  };
+  
+  const handleSaveDialogClose = () => {
+    setSaveDialogOpen(false);
+  };
+  
+  const handleSaveConfirm = () => {
+    // Create a result object with necessary properties
+    const resultToSave = {
+      ...results,
+      is_optimized: true,
+      optimization_method: selectedMethodType,
+      // Add a label so we can identify this in the comparison
+      label: resultName,
+      method_type: selectedMethodType
+    };
+    
+    const saved = saveResult(resultToSave, resultName, selectedMethodType);
+    
+    if (saved) {
+      setSnackbarMessage(`Result saved as "${resultName}" (${selectedMethodType})`);
+      setSnackbarSeverity('success');
+      setSnackbarOpen(true);
+      setSaveDialogOpen(false);
+    } else {
+      setSnackbarMessage('Failed to save result');
+      setSnackbarSeverity('error');
+      setSnackbarOpen(true);
+    }
   };
   
   // Prepare data for pie chart
@@ -242,6 +307,19 @@ const OptimizationResults = ({ results }) => {
 
   return (
     <Box>
+      {/* Add Save Button to the top of the optimization results */}
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+        <Button
+          variant="contained"
+          color="success"
+          startIcon={<SaveIcon />}
+          onClick={handleSaveClick}
+          sx={{ ml: 2 }}
+        >
+          Save Optimization
+        </Button>
+      </Box>
+      
       {/* Snackbar for notifications */}
       <Snackbar
         open={snackbarOpen}
@@ -674,6 +752,44 @@ const OptimizationResults = ({ results }) => {
           </ResponsiveContainer>
         </Box>
       </Paper>
+      
+      {/* Save Dialog with Method Type Selection */}
+      <Dialog open={saveDialogOpen} onClose={handleSaveDialogClose}>
+        <DialogTitle>Save Optimization Result</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Enter a name for this result and confirm its type for comparison.
+          </DialogContentText>
+          <TextField
+            autoFocus
+            margin="dense"
+            id="name"
+            label="Result Name"
+            type="text"
+            fullWidth
+            variant="outlined"
+            value={resultName}
+            onChange={(e) => setResultName(e.target.value)}
+          />
+          <FormControl fullWidth sx={{ mt: 2 }}>
+            <FormLabel id="method-type-label">Result Type</FormLabel>
+            <RadioGroup
+              row
+              value={selectedMethodType}
+              onChange={(e) => setSelectedMethodType(e.target.value)}
+            >
+              <FormControlLabel value="standard" control={<Radio />} label="Standard Optimization" />
+              <FormControlLabel value="genetic" control={<Radio />} label="Genetic Optimization" />
+            </RadioGroup>
+          </FormControl>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleSaveDialogClose}>Cancel</Button>
+          <Button onClick={handleSaveConfirm} color="primary" disabled={!resultName.trim()}>
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

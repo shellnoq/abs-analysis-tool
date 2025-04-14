@@ -19,6 +19,19 @@ import {
   Card,
   CardContent,
   useTheme,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
+  TextField,
+  Snackbar,
+  FormControl,
+  FormLabel,
+  RadioGroup,
+  FormControlLabel,
+  Radio
 } from "@mui/material";
 import { BarChart, Bar, PieChart, Pie, Cell, LineChart, Line, ScatterChart, Scatter, ZAxis,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area, ReferenceLine } from "recharts";
@@ -30,6 +43,8 @@ import BarChartIcon from '@mui/icons-material/BarChart';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import TableChartIcon from '@mui/icons-material/TableChart';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
+import SaveIcon from '@mui/icons-material/Save';
+import { useData } from '../contexts/DataContext';
 
 // Custom tooltip component for charts
 const CustomTooltip = ({ active, payload, label, formatter }) => {
@@ -66,8 +81,59 @@ const CalculationResults = ({ results }) => {
   const theme = useTheme();
   const [tabValue, setTabValue] = useState(0);
   
+  // Add states for save functionality
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [resultName, setResultName] = useState('');
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [selectedMethodType, setSelectedMethodType] = useState('manual');
+  
+  // Get saveResult function from context
+  const { saveResult } = useData();
+  
   const handleTabChange = (event, newValue) => {
     setTabValue(newValue);
+  };
+  
+  // Add these new functions for save functionality
+  const handleSaveClick = () => {
+    setSaveDialogOpen(true);
+    // Default name based on calculation type
+    let defaultName = 'Manual Calculation';
+    if (results.is_optimized) {
+      defaultName = results.optimization_method ? 
+        `${results.optimization_method.charAt(0).toUpperCase() + results.optimization_method.slice(1)} Optimization` : 
+        'Optimized Calculation';
+    }
+    setResultName(defaultName);
+    
+    // Set default method type based on results
+    let methodType = 'manual';
+    if (results.is_optimized) {
+      methodType = results.optimization_method === 'genetic' ? 'genetic' : 'standard';
+    }
+    setSelectedMethodType(methodType);
+  };
+  
+  const handleSaveDialogClose = () => {
+    setSaveDialogOpen(false);
+  };
+  
+  const handleSaveConfirm = () => {
+    const saved = saveResult(results, resultName, selectedMethodType);
+    
+    if (saved) {
+      setSnackbarMessage(`Result saved as "${resultName}" (${selectedMethodType})`);
+      setSnackbarOpen(true);
+      setSaveDialogOpen(false);
+    } else {
+      setSnackbarMessage('Failed to save result');
+      setSnackbarOpen(true);
+    }
+  };
+  
+  const handleSnackbarClose = () => {
+    setSnackbarOpen(false);
   };
   
   if (!results) {
@@ -217,6 +283,18 @@ const CalculationResults = ({ results }) => {
 
   return (
     <Box>
+      {/* Add Save Button at the top of the component */}
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+        <Button
+          variant="contained"
+          color="success"
+          startIcon={<SaveIcon />}
+          onClick={handleSaveClick}
+        >
+          Save Result
+        </Button>
+      </Box>
+      
       {/* Summary Section */}
       <Paper 
         elevation={0}
@@ -1377,6 +1455,53 @@ const CalculationResults = ({ results }) => {
           </Box>
         )}
       </Box>
+      
+      {/* Save Dialog with Method Type Selection */}
+      <Dialog open={saveDialogOpen} onClose={handleSaveDialogClose}>
+        <DialogTitle>Save Calculation Result</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Enter a name for this result and select its type for comparison.
+          </DialogContentText>
+          <TextField
+            autoFocus
+            margin="dense"
+            id="name"
+            label="Result Name"
+            type="text"
+            fullWidth
+            variant="outlined"
+            value={resultName}
+            onChange={(e) => setResultName(e.target.value)}
+          />
+          <FormControl fullWidth sx={{ mt: 2 }}>
+            <FormLabel id="method-type-label">Result Type</FormLabel>
+            <RadioGroup
+              row
+              value={selectedMethodType}
+              onChange={(e) => setSelectedMethodType(e.target.value)}
+            >
+              <FormControlLabel value="manual" control={<Radio />} label="Manual Configuration" />
+              <FormControlLabel value="standard" control={<Radio />} label="Standard Optimization" />
+              <FormControlLabel value="genetic" control={<Radio />} label="Genetic Optimization" />
+            </RadioGroup>
+          </FormControl>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleSaveDialogClose}>Cancel</Button>
+          <Button onClick={handleSaveConfirm} color="primary" disabled={!resultName.trim()}>
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
+      
+      {/* Snackbar for notifications */}
+      <Snackbar
+        open={snackbarOpen}
+        autoHideDuration={4000}
+        onClose={handleSnackbarClose}
+        message={snackbarMessage}
+      />
     </Box>
   );
 };
