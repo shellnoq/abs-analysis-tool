@@ -8,7 +8,7 @@ const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 60000, // 60 second timeout for optimization requests
+  timeout: 300000, // 5 dakika (300 saniye) timeout for optimization requests
 });
 
 // File upload needs different content type

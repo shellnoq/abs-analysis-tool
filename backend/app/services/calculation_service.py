@@ -67,11 +67,17 @@ def perform_calculation(df: pd.DataFrame, request: CalculationRequest) -> Calcul
     b_spreads = [request.tranche_b.spread]
     b_reinvest_rates = [request.tranche_b.reinvest_rate]
     
-    # Calculate B nominal amount
-    total_a_nominal = sum(a_nominal_amounts)
-    percent_b = 10.17811704
-    b_nominal_amount = (total_a_nominal * percent_b) / (100 - percent_b)
-    b_nominal_amount = round(b_nominal_amount / 1000) * 1000
+    # Calculate B nominal amount - Optimize edilen B nominal değeri kullanılacak
+    if hasattr(request.tranche_b, 'nominal') and request.tranche_b.nominal is not None:
+        # Use the nominal value from optimization
+        b_nominal_amount = request.tranche_b.nominal
+    else:
+        # Calculate B nominal based on fixed percentage if not provided
+        total_a_nominal = sum(a_nominal_amounts)
+        percent_b = 10.17811704
+        b_nominal_amount = (total_a_nominal * percent_b) / (100 - percent_b)
+        b_nominal_amount = round(b_nominal_amount / 1000) * 1000
+    
     b_nominal = [b_nominal_amount]
     
     # Combine all parameters

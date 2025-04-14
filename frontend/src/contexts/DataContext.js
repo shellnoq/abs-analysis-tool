@@ -25,6 +25,10 @@ export const DataProvider = ({ children }) => {
     { maturity_days: 274, base_rate: 42.5, spread: 0.0, reinvest_rate: 30.0, nominal: 400000000 },
   ]);
   
+  // Store original tranche values for reset functionality
+  const [originalTranchesA, setOriginalTranchesA] = useState(null);
+  const [originalTrancheB, setOriginalTrancheB] = useState(null);
+  
   const [trancheB, setTrancheB] = useState({
     maturity_days: 300,
     base_rate: 0.0,
@@ -36,6 +40,9 @@ export const DataProvider = ({ children }) => {
     method: 'weighted_avg_rate',
     custom_rate: 40.0
   });
+  
+  // Flag for auto-calculating when navigating from optimization page
+  const [shouldAutoCalculate, setShouldAutoCalculate] = useState(false);
   
   // Results state with localStorage initialization
   const [calculationResults, setCalculationResults] = useState(() => {
@@ -53,6 +60,12 @@ export const DataProvider = ({ children }) => {
     return saved ? JSON.parse(saved) : null;
   });
   
+  // New state for multiple comparison results
+  const [multipleComparisonResults, setMultipleComparisonResults] = useState(() => {
+    const saved = localStorage.getItem('multipleComparisonResults');
+    return saved ? JSON.parse(saved) : [];
+  });
+  
   // Wrap setState functions to also update localStorage
   const setCalculationResultsWithStorage = (results) => {
     setCalculationResults(results);
@@ -68,6 +81,21 @@ export const DataProvider = ({ children }) => {
     setPreviousCalculationResults(results);
     localStorage.setItem('previousCalculationResults', JSON.stringify(results));
   };
+  
+  const setMultipleComparisonResultsWithStorage = (results) => {
+    setMultipleComparisonResults(results);
+    localStorage.setItem('multipleComparisonResults', JSON.stringify(results));
+  };
+  
+  // Store original values when first loading
+  useEffect(() => {
+    if (!originalTranchesA) {
+      setOriginalTranchesA(JSON.parse(JSON.stringify(tranchesA)));
+    }
+    if (!originalTrancheB) {
+      setOriginalTrancheB(JSON.parse(JSON.stringify(trancheB)));
+    }
+  }, []);
   
   // Update localStorage when state changes
   useEffect(() => {
@@ -88,25 +116,36 @@ export const DataProvider = ({ children }) => {
     }
   }, [previousCalculationResults]);
   
+  useEffect(() => {
+    if (multipleComparisonResults) {
+      localStorage.setItem('multipleComparisonResults', JSON.stringify(multipleComparisonResults));
+    }
+  }, [multipleComparisonResults]);
+  
   // Optimization settings - Updated with new method options
   const [optimizationSettings, setOptimizationSettings] = useState({
-    optimization_method: 'classic', // Yeni alan
+    optimization_method: 'classic', // Default to classic
     a_tranches_range: [2, 6],
     maturity_range: [32, 365],
     maturity_step: 10,
     min_class_b_percent: 10.0,
     target_class_b_coupon_rate: 30.0,
     additional_days_for_class_b: 10,
-    // Gradient descent için
-    learning_rate: 0.01,
-    max_iterations: 100,
-    // Genetik algoritma için
+    // Genetic algorithm settings
     population_size: 50,
-    num_generations: 40,
-    // Bayesian için
-    n_calls: 50,
-    n_initial_points: 10
+    num_generations: 40
+    // Removed Gradient descent and Bayesian options
   });
+
+  // Helper function to reset to default values
+  const resetToDefaults = () => {
+    if (originalTranchesA && originalTrancheB) {
+      setTranchesA(JSON.parse(JSON.stringify(originalTranchesA)));
+      setTrancheB(JSON.parse(JSON.stringify(originalTrancheB)));
+      return true;
+    }
+    return false;
+  };
 
   // Helper function to clear data
   const clearData = () => {
@@ -131,6 +170,7 @@ export const DataProvider = ({ children }) => {
       tranches_a: tranchesA,
       tranche_b: trancheB,
       npv_settings: npvSettings
+      // Optimization data will be added in CalculationPage component
     };
   };
 
@@ -165,6 +205,14 @@ export const DataProvider = ({ children }) => {
     npvSettings,
     setNpvSettings,
     
+    // Auto-calculate flag
+    shouldAutoCalculate,
+    setShouldAutoCalculate,
+    
+    // Original values for reset
+    originalTranchesA,
+    originalTrancheB,
+    
     // Results state - use wrapper functions instead of direct setState
     calculationResults,
     setCalculationResults: setCalculationResultsWithStorage,
@@ -173,6 +221,10 @@ export const DataProvider = ({ children }) => {
     previousCalculationResults,
     setPreviousCalculationResults: setPreviousCalculationResultsWithStorage,
     
+    // Multiple comparison results
+    multipleComparisonResults,
+    setMultipleComparisonResults: setMultipleComparisonResultsWithStorage,
+    
     // Optimization settings
     optimizationSettings,
     setOptimizationSettings,
@@ -180,7 +232,8 @@ export const DataProvider = ({ children }) => {
     // Helper functions
     clearData,
     createCalculationRequest,
-    createOptimizationRequest
+    createOptimizationRequest,
+    resetToDefaults
   };
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

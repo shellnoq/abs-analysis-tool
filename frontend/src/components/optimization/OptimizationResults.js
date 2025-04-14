@@ -1,5 +1,5 @@
-// frontend/src/components/optimization/OptimizationResults.js
-import React from 'react';
+// src/components/optimization/OptimizationResults.js
+import React, { useState } from 'react';
 import { 
   Box, 
   Typography, 
@@ -11,10 +11,11 @@ import {
   TableContainer, 
   TableHead, 
   TableRow,
-  Divider,
-  Chip
+  Chip,
+  useTheme,
+  Snackbar,
+  Alert
 } from '@mui/material';
-import { useTheme } from '@mui/material/styles';
 import { 
   BarChart, Bar, 
   PieChart, Pie, Cell, 
@@ -22,25 +23,70 @@ import {
   Scatter, ScatterChart, ZAxis
 } from 'recharts';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import ReplayIcon from '@mui/icons-material/Replay';
 import { useData } from '../../contexts/DataContext';
 import { useNavigate } from 'react-router-dom';
+import { calculateResults } from '../../services/apiService';
+
+// Convert numbers to Roman numerals
+const toRoman = (num) => {
+  if (isNaN(num) || num < 1 || num > 3999) {
+    return num.toString(); // Return the number as string if not a valid input
+  }
+  
+  const romanNumerals = {
+    M: 1000, CM: 900, D: 500, CD: 400,
+    C: 100, XC: 90, L: 50, XL: 40,
+    X: 10, IX: 9, V: 5, IV: 4, I: 1
+  };
+  
+  let result = '';
+  
+  for (let key in romanNumerals) {
+    while (num >= romanNumerals[key]) {
+      result += key;
+      num -= romanNumerals[key];
+    }
+  }
+  
+  return result;
+};
 
 // Strategy name mapping
 const strategyNames = {
   equal: "Equal Distribution",
   increasing: "Increasing by Maturity",
   decreasing: "Decreasing by Maturity",
-  middle_weighted: "Middle Tranches Weighted"
+  middle_weighted: "Middle-Weighted",
+  classic: "Standard Optimization",
+  genetic: "Evolutionary Algorithm"
 };
 
 const OptimizationResults = ({ results }) => {
   const theme = useTheme();
   const navigate = useNavigate();
-  const { setTranchesA, setTrancheB, calculationResults, setPreviousCalculationResults } = useData();
+  const { 
+    setTranchesA, 
+    setTrancheB, 
+    calculationResults, 
+    setPreviousCalculationResults, 
+    originalTranchesA, 
+    originalTrancheB,
+    setIsLoading,
+    setError,
+    createCalculationRequest,
+    setCalculationResults,
+    setMultipleComparisonResults,
+    setShouldAutoCalculate
+  } = useData();
+  
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarSeverity, setSnackbarSeverity] = useState('success');
   
   // Format currency values
   const formatCurrency = (value) => {
-    return new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(value);
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'TRY' }).format(value);
   };
   
   // Format percentage values
@@ -48,15 +94,20 @@ const OptimizationResults = ({ results }) => {
     return `${value.toFixed(2)}%`;
   };
   
+  // Helper function to get strategy display name
+  const getStrategyDisplayName = (strategy) => {
+    return strategyNames[strategy] || strategy.charAt(0).toUpperCase() + strategy.slice(1);
+  };
+  
   // Prepare data for pie chart
   const pieData = [
     ...results.class_a_nominals.map((nominal, index) => ({
-      name: `Class A${index + 1}`,
+      name: `Class A${toRoman(index + 1)}`,
       value: nominal,
       color: theme.palette.primary.main
     })),
     { 
-      name: 'Class B1', 
+      name: `Class B${toRoman(1)}`, 
       value: results.class_b_nominal,
       color: theme.palette.secondary.main
     }
@@ -65,13 +116,13 @@ const OptimizationResults = ({ results }) => {
   // Prepare data for maturity distribution chart
   const maturityData = [
     ...results.class_a_maturities.map((maturity, index) => ({
-      name: `Class A${index + 1}`,
+      name: `Class A${toRoman(index + 1)}`,
       maturity,
       nominal: results.class_a_nominals[index],
       type: 'Class A'
     })),
     {
-      name: 'Class B1',
+      name: `Class B${toRoman(1)}`,
       maturity: results.class_b_maturity,
       nominal: results.class_b_nominal,
       type: 'Class B'
@@ -86,49 +137,127 @@ const OptimizationResults = ({ results }) => {
   
   // Strategy comparison data
   const strategyResultsData = Object.entries(results.results_by_strategy).map(([strategy, data]) => ({
-    name: strategyNames[strategy],
+    name: getStrategyDisplayName(strategy),
     totalPrincipal: data.total_principal,
     classBCouponRate: data.class_b_coupon_rate,
     minBufferActual: data.min_buffer_actual,
     isBest: strategy === results.best_strategy
   }));
   
-  // Apply the best strategy configuration to the forms
-  const applyConfiguration = () => {
-    // Store the current calculation results for comparison before we change the configuration
-    if (calculationResults) {
-      setPreviousCalculationResults(calculationResults);
+  // Apply the best strategy configuration to the forms and automatically calculate
+  const applyConfiguration = async () => {
+    try {
+      // Store the current calculation results for comparison before we change the configuration
+      if (calculationResults) {
+        setPreviousCalculationResults(calculationResults);
+      }
+      
+      const a_tranches = results.class_a_maturities.map((maturity, index) => ({
+        maturity_days: maturity,
+        base_rate: results.class_a_rates[index],
+        spread: 0.0, // Default value
+        reinvest_rate: results.class_a_reinvest[index],
+        nominal: results.class_a_nominals[index]
+      }));
+      
+      const b_tranche = {
+        maturity_days: results.class_b_maturity,
+        base_rate: results.class_b_rate,
+        spread: 0.0, // Default value
+        reinvest_rate: results.class_b_reinvest,
+        nominal: results.class_b_nominal  // Bu satırı ekledik - Class B nominal değerini de transfer ediyoruz
+      };
+      
+      // Update form state
+      setTranchesA(a_tranches);
+      setTrancheB(b_tranche);
+      
+      // Mark the results as from optimization, including optimization method
+      const optimizationData = {
+        is_optimized: true,
+        optimization_method: results.best_strategy,
+        optimization_label: getStrategyDisplayName(results.best_strategy)
+      };
+      
+      // Store optimization data to be used when calculating
+      sessionStorage.setItem('optimizationData', JSON.stringify(optimizationData));
+      
+      // Show processing message
+      setSnackbarMessage('Applying configuration and calculating results...');
+      setSnackbarSeverity('info');
+      setSnackbarOpen(true);
+      
+      // Set flag to trigger auto-calculation when calculation page loads
+      setShouldAutoCalculate(true);
+      
+      // Navigate to calculation page
+      navigate('/calculation');
+    } catch (error) {
+      console.error('Error applying configuration:', error);
+      
+      // Show error message
+      setSnackbarMessage('Error applying configuration. Please try again.');
+      setSnackbarSeverity('error');
+      setSnackbarOpen(true);
     }
-    
-    const a_tranches = results.class_a_maturities.map((maturity, index) => ({
-      maturity_days: maturity,
-      base_rate: results.class_a_rates[index],
-      spread: 0.0, // Default value
-      reinvest_rate: results.class_a_reinvest[index],
-      nominal: results.class_a_nominals[index]
-    }));
-    
-    const b_tranche = {
-      maturity_days: results.class_b_maturity,
-      base_rate: results.class_b_rate,
-      spread: 0.0, // Default value
-      reinvest_rate: results.class_b_reinvest
-    };
-    
-    setTranchesA(a_tranches);
-    setTrancheB(b_tranche);
-    
-    // Show a success message with option to compare
-    const goToCompare = window.confirm('Configuration applied! Would you like to go to Comparison page to compare with previous results?');
-    if (goToCompare) {
-      navigate('/comparison');  // window.location.href yerine navigate kullanıyoruz
-    } else {
-      navigate('/calculation');  // window.location.href yerine navigate kullanıyoruz
+  };
+  
+  // Reset to original values
+  const resetToOriginal = () => {
+    try {
+      if (originalTranchesA && originalTrancheB) {
+        setTranchesA(JSON.parse(JSON.stringify(originalTranchesA)));
+        setTrancheB(JSON.parse(JSON.stringify(originalTrancheB)));
+        
+        // Show success message
+        setSnackbarMessage('Reset to original values successfully.');
+        setSnackbarSeverity('success');
+        setSnackbarOpen(true);
+        
+        // Navigate to calculation page
+        navigate('/calculation');
+      } else {
+        // Show error message
+        setSnackbarMessage('Original configuration not available.');
+        setSnackbarSeverity('warning');
+        setSnackbarOpen(true);
+      }
+    } catch (error) {
+      console.error('Error resetting to original:', error);
+      
+      // Show error message
+      setSnackbarMessage('Error resetting to original values.');
+      setSnackbarSeverity('error');
+      setSnackbarOpen(true);
     }
+  };
+  
+  // Handle snackbar close
+  const handleSnackbarClose = (event, reason) => {
+    if (reason === 'clickaway') {
+      return;
+    }
+    setSnackbarOpen(false);
   };
 
   return (
     <Box>
+      {/* Snackbar for notifications */}
+      <Snackbar
+        open={snackbarOpen}
+        autoHideDuration={6000}
+        onClose={handleSnackbarClose}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert 
+          onClose={handleSnackbarClose} 
+          severity={snackbarSeverity} 
+          sx={{ width: '100%' }}
+        >
+          {snackbarMessage}
+        </Alert>
+      </Snackbar>
+      
       {/* Summary Banner */}
       <Paper 
         sx={{ 
@@ -144,7 +273,7 @@ const OptimizationResults = ({ results }) => {
           </Typography>
           <Chip 
             icon={<CheckCircleIcon />} 
-            label={strategyNames[results.best_strategy]} 
+            label={getStrategyDisplayName(results.best_strategy)} 
             color="secondary" 
           />
         </Box>
@@ -187,14 +316,26 @@ const OptimizationResults = ({ results }) => {
           </Box>
         </Box>
         
-        <Button 
-          variant="contained" 
-          color="secondary"
-          size="large"
-          onClick={applyConfiguration}
-        >
-          Apply This Configuration
-        </Button>
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <Button 
+            variant="contained" 
+            color="secondary"
+            size="large"
+            onClick={applyConfiguration}
+          >
+            Apply This Configuration
+          </Button>
+          
+          <Button 
+            variant="outlined" 
+            color="primary"
+            size="large"
+            startIcon={<ReplayIcon />}
+            onClick={resetToOriginal}
+          >
+            Reset to Original Values
+          </Button>
+        </Box>
       </Paper>
       
       {/* Class B Maturity Calculation */}
@@ -291,7 +432,7 @@ const OptimizationResults = ({ results }) => {
                   <TableCell align="right">{formatPercent(row.classBCouponRate)}</TableCell>
                   <TableCell align="right">{formatPercent(row.minBufferActual)}</TableCell>
                   <TableCell align="right">
-                    {results.results_by_strategy[Object.keys(strategyNames).find(key => strategyNames[key] === row.name)]?.num_a_tranches || '-'}
+                    {results.results_by_strategy[Object.keys(results.results_by_strategy).find(key => (getStrategyDisplayName(key)) === row.name)]?.num_a_tranches || '-'}
                   </TableCell>
                 </TableRow>
               ))}
@@ -370,7 +511,7 @@ const OptimizationResults = ({ results }) => {
             <TableBody>
               {results.class_a_maturities.map((maturity, index) => (
                 <TableRow key={index}>
-                  <TableCell>Class A{index + 1}</TableCell>
+                  <TableCell>Class A{toRoman(index + 1)}</TableCell>
                   <TableCell align="right">{maturity}</TableCell>
                   <TableCell align="right">{results.class_a_rates[index].toFixed(2)}</TableCell>
                   <TableCell align="right">{results.class_a_reinvest[index].toFixed(2)}</TableCell>
@@ -408,7 +549,7 @@ const OptimizationResults = ({ results }) => {
             </TableHead>
             <TableBody>
               <TableRow>
-                <TableCell>Class B1</TableCell>
+                <TableCell>Class B{toRoman(1)}</TableCell>
                 <TableCell align="right">{results.class_b_maturity}</TableCell>
                 <TableCell align="right">{results.class_b_rate.toFixed(2)}</TableCell>
                 <TableCell align="right">{results.class_b_reinvest.toFixed(2)}</TableCell>

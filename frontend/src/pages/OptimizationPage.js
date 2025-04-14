@@ -38,10 +38,8 @@ const OptimizationPage = () => {
   // Method translation mapping
   const getOptimizationMethodName = (method) => {
     const methods = {
-      'classic': 'Classic Strategies',
-      'gradient': 'Gradient Descent',
-      'bayesian': 'Bayesian Optimization',
-      'genetic': 'Genetic Algorithm'
+      'classic': 'Standard Optimization',
+      'genetic': 'Evolutionary Algorithm'
     };
     return methods[method] || method;
   };
@@ -73,6 +71,11 @@ const OptimizationPage = () => {
           min_buffer: generalSettings.min_buffer
         }
       };
+      
+      // Log the selected strategies
+      if (method === 'classic' && optimizationSettings.selected_strategies) {
+        console.log(`Selected strategies: ${optimizationSettings.selected_strategies.join(', ')}`);
+      }
       
       // API call based on method
       try {
@@ -192,6 +195,7 @@ const OptimizationPage = () => {
               startIcon={<RestartAltIcon />}
               onClick={handleReset}
               disabled={isLoading || isOptimizing}
+              sx={{ fontWeight: 500 }}
             >
               Start Over
             </Button>
@@ -202,7 +206,7 @@ const OptimizationPage = () => {
           Choose an optimization method and parameters to find the optimal configuration for your tranches.
         </Typography>
       </Paper>
-
+  
       {error && (
         <Alert 
           severity="error" 

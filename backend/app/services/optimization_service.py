@@ -30,13 +30,7 @@ logger = logging.getLogger(__name__)
 class OptimizationProgress:
     """Class to track and report optimization progress"""
     def __init__(self):
-        self.current_step = 0
-        self.total_steps = 100
-        self.current_phase = "Initializing"
-        self.status_message = "Starting optimization..."
-        self.progress = 0
-        self.last_update_time = time.time()
-        self.lock = False  # Simple lock mechanism
+        self.reset()
         
     def reset(self):
         """Reset all progress tracking variables"""
@@ -46,52 +40,54 @@ class OptimizationProgress:
         self.status_message = "Starting optimization..."
         self.progress = 0
         self.last_update_time = time.time()
-        self.lock = False  # Ensure lock is released
+        self.start_time = time.time()
         logger.info("Progress tracker reset")
         
     def update(self, step=None, total=None, phase=None, message=None):
-        """Update progress information with minimal state contention"""
-        if self.lock:
-            return  # Skip update if another update is in progress
+        """Update progress information"""
+        current_time = time.time()
+        
+        # Update more frequently
+        force_update = (current_time - self.last_update_time) > 0.2
+        
+        if step is not None:
+            self.current_step = step
+        if total is not None:
+            self.total_steps = total
+        if phase is not None:
+            self.current_phase = phase
+        if message is not None:
+            self.status_message = message
             
-        self.lock = True  # Acquire lock
-        try:
-            current_time = time.time()
+        # Calculate percentage
+        if self.total_steps > 0:
+            new_progress = min(99, int((self.current_step / self.total_steps) * 100))
+            if self.current_phase == "Complete" or self.current_phase == "Error":
+                new_progress = 100  # Set to 100% when complete or error
             
-            # Only update if there's been a change or more than 1 second has passed
-            force_update = (current_time - self.last_update_time) > 1
-            
-            if step is not None:
-                self.current_step = step
-            if total is not None:
-                self.total_steps = total
-            if phase is not None:
-                self.current_phase = phase
-            if message is not None:
-                self.status_message = message
-                
-            # Calculate percentage
-            if self.total_steps > 0:
-                new_progress = min(100, int((self.current_step / self.total_steps) * 100))
-                progress_changed = new_progress != self.progress
-                self.progress = new_progress
-            
-            # Log progress for debugging if something changed or if forced
-            if message is not None or progress_changed or force_update:
-                logger.info(f"Progress: {self.progress}% - {self.current_phase} - {self.status_message}")
-                self.last_update_time = current_time
-        finally:
-            self.lock = False  # Release lock
+            progress_changed = new_progress != self.progress
+            self.progress = new_progress
+        
+        # Log progress updates
+        if phase is not None or message is not None or progress_changed or force_update:
+            elapsed = current_time - self.start_time
+            logger.info(f"Progress: {self.progress}% - {self.current_phase} - {self.status_message} (elapsed: {elapsed:.1f}s)")
+            self.last_update_time = current_time
         
     def get_info(self):
-        """Get current progress information"""
+        """Get current progress information with additional data"""
+        current_time = time.time()
+        elapsed = current_time - self.start_time
+        
         return {
             "progress": self.progress,
             "phase": self.current_phase,
             "message": self.status_message,
             "step": self.current_step,
             "total_steps": self.total_steps,
-            "timestamp": time.time()
+            "timestamp": current_time,
+            "elapsed_seconds": elapsed,
+            "start_time": self.start_time
         }
 
 # Create the global optimization_progress instance
@@ -597,6 +593,7 @@ def evaluate_params(
             'min_buffer_actual': min_buffer_actual,
             'total_principal': class_a_principal + class_b_principal,
             'class_b_coupon_rate': class_b_coupon_rate,
+            'num_a_tranches': len(a_maturity_days)
         }
         
         # Calculate weighted score based on principal and coupon rate match
@@ -637,8 +634,8 @@ def perform_optimization(df: pd.DataFrame, general_settings: GeneralSettings, op
     
     # Initialize progress tracking
     optimization_progress.update(step=0, total=100, 
-                                phase="Classic Optimization", 
-                                message="Starting classic optimization...")
+                                phase="Standard Optimization", 
+                                message="Starting standard optimization...")
     
     # Extract settings
     min_a_tranches, max_a_tranches = optimization_settings.a_tranches_range
@@ -647,6 +644,13 @@ def perform_optimization(df: pd.DataFrame, general_settings: GeneralSettings, op
     min_class_b_percent = optimization_settings.min_class_b_percent
     target_class_b_coupon_rate = optimization_settings.target_class_b_coupon_rate
     additional_days = optimization_settings.additional_days_for_class_b
+    
+    # Get selected strategies - use all if not specified
+    selected_strategies = getattr(optimization_settings, "selected_strategies", 
+                                ["equal", "increasing", "decreasing", "middle_weighted"])
+    
+    optimization_progress.update(step=5, 
+                               message=f"Selected strategies: {', '.join(selected_strategies)}")
     
     # Set maximum allowed difference for coupon rate
     max_allowed_diff = 1.0  # Maximum 1% difference
@@ -721,7 +725,7 @@ def perform_optimization(df: pd.DataFrame, general_settings: GeneralSettings, op
         total_maturity_combinations += min(1000, len(list(itertools.combinations(possible_maturities, num_a_tranches))))
     
     # 4 strategies per maturity combo
-    total_iterations = total_maturity_combinations * 4
+    total_iterations = total_maturity_combinations * len(selected_strategies)
     optimization_progress.update(message=f"Estimated iterations: {total_iterations}")
     
     # Progress tracking variables
@@ -749,7 +753,7 @@ def perform_optimization(df: pd.DataFrame, general_settings: GeneralSettings, op
                 maturity_combinations.append(sorted_maturities)
         
         # If too many combinations, sample a reasonable number
-        max_samples = 100
+        max_samples = 30
         if len(maturity_combinations) > max_samples:
             sampled_indices = np.random.choice(len(maturity_combinations), max_samples, replace=False)
             maturity_combinations = [maturity_combinations[i] for i in sampled_indices]
@@ -762,7 +766,7 @@ def perform_optimization(df: pd.DataFrame, general_settings: GeneralSettings, op
         for combo_idx, maturities in enumerate(maturity_combinations):
             combo_progress = tranche_progress_base + (combo_idx * combo_progress_step)
             
-            if combo_idx % 5 == 0:  # Update every 5 combinations to avoid too many updates
+            if combo_idx % 1 == 0:  # Update every 1 combinations to avoid too many updates
                 optimization_progress.update(
                     step=int(combo_progress),
                     message=f"Testing maturity combination {combo_idx+1}/{combo_count}: {maturities}"
@@ -790,21 +794,17 @@ def perform_optimization(df: pd.DataFrame, general_settings: GeneralSettings, op
             
             # Different nominal distribution strategies
             distribution_strategies = [
-                "equal",               # Equal distribution
-                "increasing",          # Increasing by maturity
-                "decreasing",          # Decreasing by maturity
-                "middle_weighted"      # More weight to middle tranches
+                strategy for strategy in selected_strategies 
+                if strategy in ["equal", "increasing", "decreasing", "middle_weighted"]
             ]
             
-            for strategy_idx, strategy in enumerate(distribution_strategies):
-                strategy_progress = combo_progress + (strategy_idx * (combo_progress_step / 4))
-                
-                if combo_idx % 5 == 0 and strategy_idx == 0:  # Limit updates
-                    optimization_progress.update(
-                        step=int(strategy_progress),
-                        message=f"Testing strategy: {strategy} for combination {combo_idx+1}"
-                    )
-                
+            # If no valid strategies, use all
+            if not distribution_strategies:
+                distribution_strategies = ["equal", "increasing", "decreasing", "middle_weighted"]
+                logger.warning(f"No valid strategies selected, using all: {distribution_strategies}")
+            
+            # Process each strategy - FIXED: Loop through each strategy
+            for strategy in distribution_strategies:
                 # Calculate Class B nominal based on minimum percentage
                 total_nominal_amount = total_a_nominal / (1 - min_class_b_percent/100)
                 class_b_nominal = total_nominal_amount * (min_class_b_percent / 100)
@@ -836,6 +836,10 @@ def perform_optimization(df: pd.DataFrame, general_settings: GeneralSettings, op
                         a_nominals = (weights / weights.sum()) * remaining_nominal
                     else:
                         a_nominals = [remaining_nominal / num_a_tranches] * num_a_tranches
+                else:
+                    # Invalid strategy, use equal distribution as fallback
+                    logger.warning(f"Unknown strategy: {strategy}, using equal distribution")
+                    a_nominals = [remaining_nominal / num_a_tranches] * num_a_tranches
                 
                 # Round to nearest 1000
                 a_nominals = [round(n / 1000) * 1000 for n in a_nominals]
@@ -868,199 +872,89 @@ def perform_optimization(df: pd.DataFrame, general_settings: GeneralSettings, op
                 if success:
                     a_nominals = adjusted_a_nominals
                 
-                # Set up parameters for calculation
-                a_maturity_days = list(maturities)
-                a_spreads = [0.0] * len(a_maturity_days)
-                b_maturity_days = [class_b_maturity]
-                b_nominal = [class_b_nominal]
-                b_spreads = [0.0]
+                # Evaluate the result
+                eval_result = evaluate_params(
+                    maturities, a_nominals, 
+                    class_b_maturity, start_date, df_temp,
+                    maturity_to_base_rate_A, maturity_to_reinvest_rate_A,
+                    b_base_rate, b_reinvest_rate,
+                    min_class_b_percent, target_class_b_coupon_rate, min_buffer
+                )
                 
-                # Combine all parameters
-                all_maturity_days = a_maturity_days + b_maturity_days
-                all_base_rates = a_base_rates + [b_base_rate]
-                all_spreads = a_spreads + b_spreads
-                all_reinvest_rates = a_reinvest_rates + [b_reinvest_rate]
-                all_nominal = a_nominals + b_nominal
-                
-                # Calculate maturity dates
-                all_maturity_dates = [start_date + pd.Timedelta(days=days) for days in all_maturity_days]
-                
-                # Distribute cash flows to tranches
-                try:
-                    tranch_cash_flows = assign_cash_flows_to_tranches(
-                        df_temp, start_date, all_maturity_dates, all_reinvest_rates
-                    )
-                    
-                    # Calculate results for each tranche
-                    results = []
-                    buffer = 0.0
-                    
-                    for i in range(len(all_maturity_days)):
-                        is_class_a = (i < len(a_maturity_days))
-                        
-                        # Calculate cash flow totals
-                        c_flow, r_return, total_principal, total_interest = calculate_totals(
-                            tranch_cash_flows[i], all_maturity_dates[i], all_reinvest_rates[i]
-                        )
-                        
-                        # Buffer reinvestment calculation
-                        if i > 0 and buffer > 0:
-                            dd = all_maturity_days[i] - all_maturity_days[i-1]
-                            if dd > 0:
-                                factor = (1 + simple_to_compound_annual(all_reinvest_rates[i])/100)**(dd/365) - 1
-                                buffer_reinv = buffer * factor
-                            else:
-                                buffer_reinv = 0
-                        else:
-                            buffer_reinv = 0
-                        
-                        # Total available funds
-                        total_available = c_flow + r_return + buffer + buffer_reinv
-                        
-                        # Interest rate calculations
-                        base_rate_val = all_base_rates[i]
-                        spread_bps = all_spreads[i]
-                        total_rate = base_rate_val + (spread_bps/100.0)
-                        
-                        if is_class_a:
-                            # Class A payment logic
-                            nominal_pmt = all_nominal[i]
-                            discount_factor = 1 / (1 + (total_rate/100 * all_maturity_days[i]/365)) if all_maturity_days[i] > 0 else 1
-                            principal = nominal_pmt * discount_factor
-                            interest = nominal_pmt - principal
-                            coupon_payment = 0
-                            total_payment = nominal_pmt
-                        else:
-                            # Class B payment logic
-                            nominal_pmt = all_nominal[i]
-                            principal = nominal_pmt
-                            coupon_payment = max(0, total_available - principal)
-                            interest = 0
-                            total_payment = principal + coupon_payment
-                        
-                        # Calculate buffer with division by zero protection
-                        new_buffer = max(0, total_available - total_payment)
-                        buffer_cf_ratio = (new_buffer / nominal_pmt * 100) if nominal_pmt > 0 else 0
-                        
-                        # Add to results
-                        results.append({
-                            "is_class_a": is_class_a,
-                            "principal": principal,
-                            "interest": interest,
-                            "coupon_payment": coupon_payment,
-                            "total_payment": total_payment,
-                            "buffer_cf_ratio": buffer_cf_ratio,
-                            "maturity_days": all_maturity_days[i],
-                            "base_rate": base_rate_val,
-                            "nominal": all_nominal[i],
-                            "discount_factor": discount_factor
-                        })
-                        
-                        # Update buffer for next tranche
-                        buffer = new_buffer
-                    
-                    # Split results by class
-                    class_a_results = [r for r in results if r['is_class_a']]
-                    class_b_results = [r for r in results if not r['is_class_a']]
-                    
-                    # Calculate key metrics
-                    class_a_principal = sum(r['principal'] for r in class_a_results)
-                    class_b_principal = sum(r['principal'] for r in class_b_results)
-                    class_a_interest = sum(r['interest'] for r in class_a_results)
-                    class_b_coupon = sum(r['coupon_payment'] for r in class_b_results)
-                    class_a_total = sum(r['total_payment'] for r in class_a_results)
-                    class_b_total = sum(r['total_payment'] for r in class_b_results)
-                    
-                    # Class B base rate should match the last Class A's
-                    class_b_base_rate = class_b_results[0]['base_rate'] if class_b_results else 0.0
-                    
-                    # Calculate Class B effective coupon rate (annualized)
-                    if class_b_results and class_b_principal > 0:
-                        class_b_maturity_days = class_b_results[0]['maturity_days']
-                        class_b_coupon_rate = (class_b_coupon / class_b_principal) * (365 / class_b_maturity_days) * 100
-                    else:
-                        class_b_coupon_rate = 0.0
-                    
-                    min_buffer_actual = min(r['buffer_cf_ratio'] for r in class_a_results) if class_a_results else 0.0
+                # Check if valid and meets buffer requirement
+                if eval_result['is_valid'] and eval_result['results']:
+                    result_dict = eval_result['results']
+                    total_principal = result_dict['total_principal']
+                    class_b_coupon_rate = result_dict['class_b_coupon_rate']
+                    min_buffer_actual = result_dict['min_buffer_actual']
                     
                     # Calculate difference from target coupon rate
                     coupon_rate_diff = abs(class_b_coupon_rate - target_class_b_coupon_rate)
                     
-                    # Check if valid and meets buffer requirement
-                    if min_buffer_actual >= min_buffer:
-                        total_principal = class_a_principal + class_b_principal
-                        
-                        # Calculate weighted score based on principal and coupon rate match
-                        # Use exponential penalty for larger differences
-                        coupon_rate_weight = np.exp(-coupon_rate_diff / 5.0)  # Stronger penalty for rate difference
-                        weighted_principal = total_principal * coupon_rate_weight
-                        
-                        # Check if this is the best solution for this strategy
-                        # Prioritize solutions with smaller coupon rate differences
-                        is_better = False
-                        
-                        if coupon_rate_diff <= best_coupon_rate_diff_by_strategy[strategy]:
-                            # If coupon rate difference is better or equal, check weighted principal
-                            if coupon_rate_diff < best_coupon_rate_diff_by_strategy[strategy] or \
-                               weighted_principal > best_weighted_principal_by_strategy[strategy]:
-                                is_better = True
-                        elif coupon_rate_diff <= max_allowed_diff and \
-                             weighted_principal > best_weighted_principal_by_strategy[strategy]:
-                            # If within allowed difference and better weighted principal
+                    # Calculate weighted score based on principal and coupon rate match
+                    coupon_rate_weight = np.exp(-coupon_rate_diff / 5.0)  # Stronger penalty for rate difference
+                    weighted_principal = total_principal * coupon_rate_weight
+                    
+                    # Check if this is the best solution for this strategy
+                    # Prioritize solutions with smaller coupon rate differences
+                    is_better = False
+                    
+                    if coupon_rate_diff <= best_coupon_rate_diff_by_strategy[strategy]:
+                        # If coupon rate difference is better or equal, check weighted principal
+                        if coupon_rate_diff < best_coupon_rate_diff_by_strategy[strategy] or \
+                           weighted_principal > best_weighted_principal_by_strategy[strategy]:
                             is_better = True
+                    elif coupon_rate_diff <= max_allowed_diff and \
+                         weighted_principal > best_weighted_principal_by_strategy[strategy]:
+                        # If within allowed difference and better weighted principal
+                        is_better = True
+                    
+                    if is_better:
+                        best_coupon_rate_diff_by_strategy[strategy] = coupon_rate_diff
+                        best_weighted_principal_by_strategy[strategy] = weighted_principal
                         
-                        if is_better:
-                            best_coupon_rate_diff_by_strategy[strategy] = coupon_rate_diff
-                            best_weighted_principal_by_strategy[strategy] = weighted_principal
-                            
-                            best_params_by_strategy[strategy] = {
-                                'num_a_tranches': num_a_tranches,
-                                'a_maturity_days': a_maturity_days,
-                                'a_base_rates': a_base_rates,
-                                'a_reinvest_rates': a_reinvest_rates,
-                                'a_nominal_amounts': a_nominals,
-                                'b_maturity_days': b_maturity_days,
-                                'b_base_rates': [b_base_rate],
-                                'b_reinvest_rates': [b_reinvest_rate],
-                                'b_nominal': b_nominal,
-                                'strategy': strategy,
-                                'last_cash_flow_day': last_cash_flow_day,
-                                'added_days': additional_days
-                            }
-                            
-                            best_results_by_strategy[strategy] = {
-                                'class_a_principal': class_a_principal,
-                                'class_b_principal': class_b_principal,
-                                'class_a_interest': class_a_interest,
-                                'class_b_coupon': class_b_coupon,
-                                'class_a_total': class_a_total,
-                                'class_b_total': class_b_total,
-                                'min_buffer_actual': min_buffer_actual,
-                                'total_principal': total_principal,
-                                'class_b_coupon_rate': class_b_coupon_rate,
-                                'target_class_b_coupon_rate': target_class_b_coupon_rate,
-                                'coupon_rate_diff': coupon_rate_diff,
-                                'coupon_rate_weight': coupon_rate_weight,
-                                'class_b_base_rate': class_b_base_rate,
-                                'num_a_tranches': num_a_tranches
-                            }
-                            
-                            optimization_progress.update(
-                                message=f"Found better solution for {strategy}: coupon_rate={class_b_coupon_rate:.2f}%, " +
-                                       f"diff={coupon_rate_diff:.2f}%, total_principal={total_principal:,.2f}"
-                            )
-                
-                except Exception as e:
-                    logger.error(f"Error in calculation for {strategy} strategy: {str(e)}")
-                    logger.debug(traceback.format_exc())
-                    # Continue to next strategy
-                    continue
+                        best_params_by_strategy[strategy] = {
+                            'num_a_tranches': num_a_tranches,
+                            'a_maturity_days': list(maturities),
+                            'a_base_rates': a_base_rates,
+                            'a_reinvest_rates': a_reinvest_rates,
+                            'a_nominal_amounts': a_nominals,
+                            'b_maturity_days': [class_b_maturity],
+                            'b_base_rates': [b_base_rate],
+                            'b_reinvest_rates': [b_reinvest_rate],
+                            'b_nominal': [class_b_nominal],
+                            'strategy': strategy,
+                            'last_cash_flow_day': last_cash_flow_day,
+                            'added_days': additional_days
+                        }
+                        
+                        best_results_by_strategy[strategy] = {
+                            'class_a_principal': result_dict['class_a_principal'],
+                            'class_b_principal': result_dict['class_b_principal'],
+                            'class_a_interest': result_dict['class_a_interest'],
+                            'class_b_coupon': result_dict['class_b_coupon'],
+                            'class_a_total': result_dict['class_a_total'],
+                            'class_b_total': result_dict['class_b_total'],
+                            'min_buffer_actual': min_buffer_actual,
+                            'total_principal': total_principal,
+                            'class_b_coupon_rate': class_b_coupon_rate,
+                            'target_class_b_coupon_rate': target_class_b_coupon_rate,
+                            'coupon_rate_diff': coupon_rate_diff,
+                            'coupon_rate_weight': coupon_rate_weight,
+                            'class_b_base_rate': b_base_rate,
+                            'num_a_tranches': num_a_tranches
+                        }
+                        
+                        optimization_progress.update(
+                            message=f"Found better solution for {strategy}: coupon_rate={class_b_coupon_rate:.2f}%, " +
+                                   f"diff={coupon_rate_diff:.2f}%, total_principal={total_principal:,.2f}"
+                        )
                 
                 # Update iteration counter
                 current_iteration += 1
                 
                 # Update progress periodically
-                if current_iteration % 50 == 0:
+                if current_iteration % 10 == 0:
                     progress_percent = min(80, 20 + int(current_iteration / total_iterations * 60))
                     optimization_progress.update(
                         step=progress_percent,
@@ -1136,695 +1030,6 @@ def perform_optimization(df: pd.DataFrame, general_settings: GeneralSettings, op
         additional_days=additional_days,
         results_by_strategy={k: v for k, v in best_results_by_strategy.items() if v is not None}
     )
-
-def perform_gradient_optimization(df: pd.DataFrame, general_settings: GeneralSettings, optimization_settings: OptimizationSettings) -> OptimizationResult:
-    """Gradient descent optimization with aggressive coupon rate targeting
-    
-    Args:
-        df: DataFrame containing cash flow data
-        general_settings: General settings for the optimization
-        optimization_settings: Optimization-specific settings
-        
-    Returns:
-        OptimizationResult object with the optimized structure
-    """
-    try:
-        # Initialize progress tracking
-        global optimization_progress
-        optimization_progress.update(step=0, total=100, 
-                                    phase="Gradient Optimization", 
-                                    message="Starting gradient optimization...")
-        
-        # Basic parameters
-        max_iterations = getattr(optimization_settings, "max_iterations", 100)
-        learning_rate = getattr(optimization_settings, "learning_rate", 0.01)
-        start_date = pd.Timestamp(general_settings.start_date)
-        ops_expenses = general_settings.operational_expenses
-        min_buffer = general_settings.min_buffer
-        min_class_b_percent = optimization_settings.min_class_b_percent
-        target_class_b_coupon_rate = optimization_settings.target_class_b_coupon_rate
-        additional_days = optimization_settings.additional_days_for_class_b
-        
-        # Strict maximum allowed difference for coupon rate
-        max_allowed_diff = 1.0  # Maximum 1% difference for coupon rate
-        
-        optimization_progress.update(step=5, 
-                                    message=f"Target coupon rate: {target_class_b_coupon_rate}%, preparing data...")
-        
-        # Get last cash flow day
-        last_cash_flow_day = get_last_cash_flow_day(df, start_date)
-        
-        # Class B maturity as Last Cash Flow Day + Additional Days, capped at 365
-        class_b_maturity = min(365, last_cash_flow_day + additional_days)
-        
-        # Get original parameters for Class A from the example data
-        original_maturities_A = [61, 120, 182, 274]
-        original_base_rates_A = [45.6, 44.5, 43.3, 42.5]
-        original_reinvest_rates_A = [40.0, 37.25, 32.5, 30.0]
-        
-        # Class B values (fallback values)
-        class_b_base_rate_orig = 0.0
-        class_b_reinvest_rate_orig = 25.5
-        
-        optimization_progress.update(step=10, 
-                                    message="Creating rate lookup tables and preparing data...")
-        
-        # Create rate lookup tables for Class A
-        maturity_to_base_rate_A = dict(zip(original_maturities_A, original_base_rates_A))
-        maturity_to_reinvest_rate_A = dict(zip(original_maturities_A, original_reinvest_rates_A))
-        
-        # Create temporary dataframe for calculation - only do this once
-        df_temp = df.copy()
-        df_temp['cash_flow'] = df_temp['original_cash_flow'].copy()
-        target_date = pd.Timestamp('2025-02-16')
-        target_rows = df_temp[df_temp['installment_date'].dt.date == target_date.date()]
-        
-        if not target_rows.empty:
-            t_idx = target_rows.index[0]
-            orig_cf = df_temp.at[t_idx, 'cash_flow']
-            new_cf = max(0, orig_cf - ops_expenses)
-            df_temp.at[t_idx, 'cash_flow'] = new_cf
-        
-        # Total A nominal (example from original code)
-        total_a_nominal = 1765000000
-        
-        # Fixed number of tranches
-        num_a_tranches = 4
-        
-        optimization_progress.update(step=15, 
-                                    message=f"Using {num_a_tranches} tranches for Class A...")
-        
-        # Calculate Class B nominal based on minimum percentage
-        total_nominal_amount = total_a_nominal / (1 - min_class_b_percent/100)
-        class_b_nominal = total_nominal_amount * (min_class_b_percent / 100)
-        remaining_nominal = total_nominal_amount - class_b_nominal
-        
-        # Try multiple initial maturity configurations
-        maturity_configurations = [
-            [60, 120, 180, 270],  # Evenly spaced configuration
-            [45, 90, 180, 270],   # Alternative configuration 1
-            [30, 90, 150, 210],   # Alternative configuration 2
-            [60, 120, 210, 300],  # Alternative configuration 3
-            [30, 60, 90, 180]     # Shorter maturities configuration
-        ]
-        
-        # For tracking the best solution found
-        best_results = None
-        best_params = None
-        best_coupon_rate_diff = float('inf')
-        
-        optimization_progress.update(step=20, 
-                                    phase="Testing Configurations",
-                                    message="Starting multi-configuration optimization...")
-        
-        # Calculate progress steps per configuration
-        total_configs = len(maturity_configurations)
-        config_progress_step = 60 / total_configs
-        
-        # Loop through different initial maturity configurations
-        for config_idx, maturities in enumerate(maturity_configurations):
-            config_progress_base = 20 + (config_idx * config_progress_step)
-            
-            optimization_progress.update(
-                step=int(config_progress_base), 
-                message=f"Testing configuration {config_idx+1}/{total_configs}: {maturities}"
-            )
-            
-            # Get rates based on nearest original maturity
-            base_rates = [maturity_to_base_rate_A.get(get_nearest_maturity(m, original_maturities_A), 42.0) for m in maturities]
-            reinvest_rates = [maturity_to_reinvest_rate_A.get(get_nearest_maturity(m, original_maturities_A), 30.0) for m in maturities]
-            
-            # Start with equal nominal amounts
-            equal_nominals = [remaining_nominal / num_a_tranches] * num_a_tranches
-            
-            # Use the aggressive adjustment function to target coupon rate
-            adjusted_nominals, adjustment_success = adjust_class_a_nominals_for_target_coupon(
-                equal_nominals,
-                class_b_nominal,
-                target_class_b_coupon_rate,
-                class_b_maturity,
-                maturities,
-                base_rates,
-                reinvest_rates,
-                class_b_base_rate_orig,
-                class_b_reinvest_rate_orig,
-                start_date,
-                df_temp,
-                min_buffer,
-                max_allowed_diff
-            )
-            
-            # Update progress
-            optimization_progress.update(
-                step=int(config_progress_base + config_progress_step * 0.5),
-                message=f"Evaluated configuration {config_idx+1}, adjustment success: {adjustment_success}"
-            )
-            
-            if adjustment_success:
-                # Evaluate with the successful adjustment
-                result = evaluate_params(
-                    maturities,
-                    adjusted_nominals, 
-                    class_b_maturity, 
-                    start_date, 
-                    df_temp,
-                    maturity_to_base_rate_A, 
-                    maturity_to_reinvest_rate_A,
-                    class_b_base_rate_orig, 
-                    class_b_reinvest_rate_orig,
-                    min_class_b_percent, 
-                    target_class_b_coupon_rate, 
-                    min_buffer
-                )
-                
-                if result['is_valid']:
-                    coupon_rate = result['results']['class_b_coupon_rate']
-                    coupon_rate_diff = abs(coupon_rate - target_class_b_coupon_rate)
-                    
-                    if coupon_rate_diff < best_coupon_rate_diff:
-                        best_coupon_rate_diff = coupon_rate_diff
-                        best_results = result['results']
-                        best_params = {
-                            'a_maturities': maturities,
-                            'a_nominals': adjusted_nominals,
-                            'a_base_rates': base_rates,
-                            'a_reinvest_rates': reinvest_rates,
-                            'b_maturity': class_b_maturity,
-                            'b_base_rate': class_b_base_rate_orig,
-                            'b_reinvest_rate': class_b_reinvest_rate_orig,
-                            'b_nominal': class_b_nominal
-                        }
-                        
-                        optimization_progress.update(
-                            message=f"Found better solution with coupon rate {coupon_rate:.2f}% (diff: {coupon_rate_diff:.2f}%)"
-                        )
-                        
-                        # If difference is very small, break early
-                        if coupon_rate_diff < 0.2:
-                            optimization_progress.update(
-                                message=f"Found excellent match (diff < 0.2%), breaking early"
-                            )
-                            break
-            
-            # Update progress at end of configuration
-            optimization_progress.update(
-                step=int(config_progress_base + config_progress_step),
-                message=f"Completed testing configuration {config_idx+1}/{total_configs}"
-            )
-        
-        # If no solution found with the predefined configurations, try shorter maturities
-        if best_results is None:
-            optimization_progress.update(
-                step=80,
-                phase="Alternative Configurations",
-                message="Trying alternative configurations with very short maturities..."
-            )
-            
-            # Try configurations with very short maturities
-            short_maturity_configs = [
-                [15, 30, 45, 60],   # Very short maturities
-                [30, 45, 60, 90],   # Short maturities
-                [10, 20, 40, 90],   # Mixed short maturities
-            ]
-            
-            for idx, maturities in enumerate(short_maturity_configs):
-                optimization_progress.update(
-                    step=80 + (idx * 5),
-                    message=f"Testing short maturity configuration: {maturities}"
-                )
-                
-                # Get rates
-                base_rates = [maturity_to_base_rate_A.get(get_nearest_maturity(m, original_maturities_A), 42.0) for m in maturities]
-                reinvest_rates = [maturity_to_reinvest_rate_A.get(get_nearest_maturity(m, original_maturities_A), 30.0) for m in maturities]
-                
-                # Use extremely small initial nominals (10% of normal)
-                small_nominals = [(remaining_nominal / num_a_tranches) * 0.1] * num_a_tranches
-                
-                # Try adjustment with these small nominals
-                adjusted_nominals, adjustment_success = adjust_class_a_nominals_for_target_coupon(
-                    small_nominals,
-                    class_b_nominal,
-                    target_class_b_coupon_rate,
-                    class_b_maturity,
-                    maturities,
-                    base_rates,
-                    reinvest_rates,
-                    class_b_base_rate_orig,
-                    class_b_reinvest_rate_orig,
-                    start_date,
-                    df_temp,
-                    min_buffer,
-                    max_allowed_diff
-                )
-                
-                if adjustment_success:
-                    result = evaluate_params(
-                        maturities,
-                        adjusted_nominals, 
-                        class_b_maturity, 
-                        start_date, 
-                        df_temp,
-                        maturity_to_base_rate_A, 
-                        maturity_to_reinvest_rate_A,
-                        class_b_base_rate_orig, 
-                        class_b_reinvest_rate_orig,
-                        min_class_b_percent, 
-                        target_class_b_coupon_rate, 
-                        min_buffer
-                    )
-                    
-                    if result['is_valid']:
-                        coupon_rate = result['results']['class_b_coupon_rate']
-                        coupon_rate_diff = abs(coupon_rate - target_class_b_coupon_rate)
-                        
-                        if coupon_rate_diff < best_coupon_rate_diff:
-                            best_coupon_rate_diff = coupon_rate_diff
-                            best_results = result['results']
-                            best_params = {
-                                'a_maturities': maturities,
-                                'a_nominals': adjusted_nominals,
-                                'a_base_rates': base_rates,
-                                'a_reinvest_rates': reinvest_rates,
-                                'b_maturity': class_b_maturity,
-                                'b_base_rate': class_b_base_rate_orig,
-                                'b_reinvest_rate': class_b_reinvest_rate_orig,
-                                'b_nominal': class_b_nominal
-                            }
-                            
-                            optimization_progress.update(
-                                message=f"Found better solution with short maturities: coupon rate {coupon_rate:.2f}% (diff: {coupon_rate_diff:.2f}%)"
-                            )
-                            
-                            if coupon_rate_diff < 0.2:
-                                break
-        
-        # Final phase - preparing results
-        optimization_progress.update(step=95, phase="Finalizing Results", 
-                                    message="Preparing optimization results...")
-        
-        # If no solution was found that meets our criteria
-        if best_results is None:
-            # Fall back to classic optimization method rather than failing
-            optimization_progress.update(
-                message="Gradient optimization couldn't find a solution matching the target coupon rate. Falling back to classic optimization method..."
-            )
-            
-            return perform_optimization(df, general_settings, optimization_settings)
-        
-        optimization_progress.update(
-            message=f"Gradient optimization completed. Best coupon rate: {best_results['class_b_coupon_rate']:.2f}% (target: {target_class_b_coupon_rate:.2f}%, diff: {best_coupon_rate_diff:.2f}%)"
-        )
-        
-        # Prepare and return the result
-        result = OptimizationResult(
-            best_strategy="gradient",
-            class_a_maturities=best_params['a_maturities'],
-            class_a_nominals=best_params['a_nominals'],
-            class_a_rates=best_params['a_base_rates'],
-            class_a_reinvest=best_params['a_reinvest_rates'],
-            class_b_maturity=best_params['b_maturity'],
-            class_b_rate=best_params['b_base_rate'],
-            class_b_reinvest=best_params['b_reinvest_rate'],
-            class_b_nominal=best_params['b_nominal'],
-            class_b_coupon_rate=best_results.get('class_b_coupon_rate', 0),
-            min_buffer_actual=best_results.get('min_buffer_actual', 0),
-            last_cash_flow_day=last_cash_flow_day,
-            additional_days=additional_days,
-            results_by_strategy={"gradient": best_results}
-        )
-        
-        # Final progress update
-        optimization_progress.update(step=100, 
-                                    message="Optimization completed successfully.")
-        
-        return result
-    except Exception as e:
-        # Log error, update progress, fall back to classic method
-        optimization_progress.update(
-            phase="Error Recovery",
-            message=f"Error during gradient optimization: {str(e)}. Falling back to classic method..."
-        )
-        logger.error(f"Gradient optimization error: {str(e)}")
-        logger.debug(traceback.format_exc())
-        
-        return perform_optimization(df, general_settings, optimization_settings)
-
-def perform_bayesian_optimization(df: pd.DataFrame, general_settings: GeneralSettings, optimization_settings: OptimizationSettings) -> OptimizationResult:
-    """Bayesian optimization with binary search for coupon rate targeting
-    
-    Args:
-        df: DataFrame containing cash flow data
-        general_settings: General settings for the optimization
-        optimization_settings: Optimization-specific settings
-        
-    Returns:
-        OptimizationResult object with the optimized structure
-    """
-    try:
-        # Initialize progress tracking
-        global optimization_progress
-        optimization_progress.update(step=0, total=100, 
-                                    phase="Bayesian Optimization", 
-                                    message="Starting Bayesian optimization...")
-        
-        # Basic parameters
-        start_date = pd.Timestamp(general_settings.start_date)
-        ops_expenses = general_settings.operational_expenses
-        min_buffer = general_settings.min_buffer
-        min_class_b_percent = optimization_settings.min_class_b_percent
-        target_class_b_coupon_rate = optimization_settings.target_class_b_coupon_rate
-        additional_days = optimization_settings.additional_days_for_class_b
-        n_calls = getattr(optimization_settings, "n_calls", 50)
-        n_initial_points = getattr(optimization_settings, "n_initial_points", 10)
-        
-        # Strict maximum allowed difference for coupon rate
-        max_allowed_diff = 1.0  # Maximum 1% difference for coupon rate
-        
-        optimization_progress.update(step=5, 
-                                    message=f"Target coupon rate: {target_class_b_coupon_rate}%, preparing data...")
-        
-        # Get last cash flow day
-        last_cash_flow_day = get_last_cash_flow_day(df, start_date)
-        
-        # Class B maturity as Last Cash Flow Day + Additional Days, capped at 365
-        class_b_maturity = min(365, last_cash_flow_day + additional_days)
-        
-        # Get original parameters for Class A 
-        original_maturities_A = [61, 120, 182, 274]
-        original_base_rates_A = [45.6, 44.5, 43.3, 42.5]
-        original_reinvest_rates_A = [40.0, 37.25, 32.5, 30.0]
-        
-        # Class B values
-        class_b_base_rate_orig = 0.0
-        class_b_reinvest_rate_orig = 25.5
-        
-        optimization_progress.update(step=10, 
-                                    message="Creating rate lookup tables and preparing data...")
-        
-        # Create rate lookup tables for Class A
-        maturity_to_base_rate_A = dict(zip(original_maturities_A, original_base_rates_A))
-        maturity_to_reinvest_rate_A = dict(zip(original_maturities_A, original_reinvest_rates_A))
-        
-        # Create temporary dataframe for calculation
-        df_temp = df.copy()
-        df_temp['cash_flow'] = df_temp['original_cash_flow'].copy()
-        target_date = pd.Timestamp('2025-02-16')
-        target_rows = df_temp[df_temp['installment_date'].dt.date == target_date.date()]
-        
-        if not target_rows.empty:
-            t_idx = target_rows.index[0]
-            orig_cf = df_temp.at[t_idx, 'cash_flow']
-            new_cf = max(0, orig_cf - ops_expenses)
-            df_temp.at[t_idx, 'cash_flow'] = new_cf
-        
-        # Total A nominal
-        total_a_nominal = 1765000000
-        
-        # Fixed number of tranches
-        num_a_tranches = 4
-        
-        optimization_progress.update(step=15, 
-                                    message=f"Using {num_a_tranches} tranches for Class A")
-        
-        # Calculate Class B nominal based on minimum percentage
-        total_nominal_amount = total_a_nominal / (1 - min_class_b_percent/100)
-        class_b_nominal = total_nominal_amount * (min_class_b_percent / 100)
-        remaining_nominal = total_nominal_amount - class_b_nominal
-        
-        # Define different maturity configurations to try
-        maturity_configurations = [
-            [60, 120, 180, 270],  # Evenly spaced configuration
-            [45, 90, 180, 270],   # Alternative configuration 1
-            [30, 90, 150, 210],   # Alternative configuration 2
-            [60, 120, 210, 300],  # Alternative configuration 3
-            [30, 60, 90, 180]     # Shorter maturities configuration
-        ]
-        
-        # Define different nominal distribution patterns to try
-        nominal_distributions = [
-            [0.25, 0.25, 0.25, 0.25],  # Equal distribution
-            [0.4, 0.3, 0.2, 0.1],      # Decreasing distribution
-            [0.1, 0.2, 0.3, 0.4],      # Increasing distribution
-            [0.15, 0.35, 0.35, 0.15],  # Middle-weighted distribution
-            [0.3, 0.1, 0.1, 0.5]       # Weighted at ends
-        ]
-        
-        # Track best results overall
-        best_result = None
-        best_coupon_rate_diff = float('inf')
-        best_maturities = None
-        best_nominals = None
-        best_base_rates = None
-        best_reinvest_rates = None
-        
-        optimization_progress.update(step=20, 
-                                    phase="Testing Configurations",
-                                    message="Starting structured Bayesian optimization...")
-        
-        # Calculate total steps for progress tracking
-        total_configs = len(maturity_configurations) * len(nominal_distributions)
-        current_config = 0
-        config_progress_step = 60 / total_configs
-        
-        # For each maturity configuration, try different nominal distributions
-        for config_idx, maturity_config in enumerate(maturity_configurations):
-            for dist_idx, dist_pattern in enumerate(nominal_distributions):
-                current_config += 1
-                config_progress = 20 + (current_config * config_progress_step)
-                
-                optimization_progress.update(
-                    step=int(config_progress),
-                    message=f"Testing configuration {current_config}/{total_configs}"
-                )
-                
-                maturities = maturity_config.copy()
-                
-                # Get rates based on nearest original maturity
-                base_rates = [maturity_to_base_rate_A.get(get_nearest_maturity(m, original_maturities_A), 42.0) for m in maturities]
-                reinvest_rates = [maturity_to_reinvest_rate_A.get(get_nearest_maturity(m, original_maturities_A), 30.0) for m in maturities]
-                
-                # Initial nominals based on distribution pattern
-                nominals = [p * remaining_nominal for p in dist_pattern]
-                
-                # Use the direct Class A nominal adjustment function to target the coupon rate
-                adjusted_nominals, adjustment_success = adjust_class_a_nominals_for_target_coupon(
-                    nominals,
-                    class_b_nominal,
-                    target_class_b_coupon_rate,
-                    class_b_maturity,
-                    maturities,
-                    base_rates,
-                    reinvest_rates,
-                    class_b_base_rate_orig,
-                    class_b_reinvest_rate_orig,
-                    start_date,
-                    df_temp,
-                    min_buffer,
-                    max_allowed_diff
-                )
-                
-                if adjustment_success:
-                    # If adjustment was successful, evaluate the results
-                    result = evaluate_params(
-                        maturities, 
-                        adjusted_nominals, 
-                        class_b_maturity, 
-                        start_date, 
-                        df_temp,
-                        maturity_to_base_rate_A, 
-                        maturity_to_reinvest_rate_A,
-                        class_b_base_rate_orig, 
-                        class_b_reinvest_rate_orig,
-                        min_class_b_percent, 
-                        target_class_b_coupon_rate, 
-                        min_buffer
-                    )
-                    
-                    if result['is_valid']:
-                        coupon_rate = result['results']['class_b_coupon_rate']
-                        coupon_rate_diff = abs(coupon_rate - target_class_b_coupon_rate)
-                        
-                        if coupon_rate_diff <= max_allowed_diff:
-                            total_principal = result['results']['total_principal']
-                            
-                            if coupon_rate_diff < best_coupon_rate_diff:
-                                best_coupon_rate_diff = coupon_rate_diff
-                                best_result = result
-                                best_maturities = maturities
-                                best_nominals = adjusted_nominals
-                                best_base_rates = base_rates
-                                best_reinvest_rates = reinvest_rates
-                                
-                                optimization_progress.update(
-                                    message=f"Found better solution with coupon rate {coupon_rate:.2f}% (diff: {coupon_rate_diff:.2f}%)"
-                                )
-                                
-                                # If we found a very good match, break early
-                                if coupon_rate_diff < 0.2:
-                                    optimization_progress.update(
-                                        message=f"Found excellent match (diff < 0.2%), breaking early"
-                                    )
-                                    break
-            
-            # If we found a very good match in this configuration, break early
-            if best_coupon_rate_diff < 0.2:
-                break
-# Phase 2: If no solution found with predefined configurations, do random search
-        if best_result is None:
-            optimization_progress.update(
-                step=80,
-                phase="Random Search",
-                message="Initial strategies failed. Proceeding with random search..."
-            )
-            
-            # Try more random maturity combinations, focusing on coupon rate adjustment
-            n_random_trials = min(30, n_calls)  # Cap at 30 to avoid taking too long
-            random_progress_step = 15 / n_random_trials
-            
-            for i in range(n_random_trials):
-                random_progress = 80 + (i * random_progress_step)
-                
-                optimization_progress.update(
-                    step=int(random_progress),
-                    message=f"Random search {i+1}/{n_random_trials}"
-                )
-                
-                # Generate random maturities with minimum gap
-                maturities = []
-                min_gap = 15  # days
-                min_maturity = 30
-                max_maturity = 365
-                
-                # First maturity
-                maturities.append(random.randint(min_maturity, 120))
-                
-                # Add remaining maturities with minimum gap
-                for j in range(1, num_a_tranches):
-                    min_val = maturities[-1] + min_gap
-                    max_val = min(max_maturity, maturities[-1] + 90)
-                    
-                    if min_val >= max_val:
-                        min_val = max_val
-                    
-                    maturities.append(random.randint(min_val, max_val))
-                
-                # Get rates based on nearest original maturity
-                base_rates = [maturity_to_base_rate_A.get(get_nearest_maturity(m, original_maturities_A), 42.0) for m in maturities]
-                reinvest_rates = [maturity_to_reinvest_rate_A.get(get_nearest_maturity(m, original_maturities_A), 30.0) for m in maturities]
-                
-                # Generate equal nominals
-                nominals = [remaining_nominal / num_a_tranches] * num_a_tranches
-                
-                # Use the adjustment function to target coupon rate
-                adjusted_nominals, adjustment_success = adjust_class_a_nominals_for_target_coupon(
-                    nominals,
-                    class_b_nominal,
-                    target_class_b_coupon_rate,
-                    class_b_maturity,
-                    maturities,
-                    base_rates,
-                    reinvest_rates,
-                    class_b_base_rate_orig,
-                    class_b_reinvest_rate_orig,
-                    start_date,
-                    df_temp,
-                    min_buffer,
-                    max_allowed_diff
-                )
-                
-                if adjustment_success:
-                    # Evaluate the results
-                    result = evaluate_params(
-                        maturities, 
-                        adjusted_nominals, 
-                        class_b_maturity, 
-                        start_date, 
-                        df_temp,
-                        maturity_to_base_rate_A, 
-                        maturity_to_reinvest_rate_A,
-                        class_b_base_rate_orig, 
-                        class_b_reinvest_rate_orig,
-                        min_class_b_percent, 
-                        target_class_b_coupon_rate, 
-                        min_buffer
-                    )
-                    
-                    if result['is_valid']:
-                        coupon_rate = result['results']['class_b_coupon_rate']
-                        coupon_rate_diff = abs(coupon_rate - target_class_b_coupon_rate)
-                        
-                        if coupon_rate_diff <= max_allowed_diff:
-                            total_principal = result['results']['total_principal']
-                            
-                            if coupon_rate_diff < best_coupon_rate_diff:
-                                best_coupon_rate_diff = coupon_rate_diff
-                                best_result = result
-                                best_maturities = maturities
-                                best_nominals = adjusted_nominals
-                                best_base_rates = base_rates
-                                best_reinvest_rates = reinvest_rates
-                                
-                                optimization_progress.update(
-                                    message=f"Found better solution with coupon rate {coupon_rate:.2f}% (diff: {coupon_rate_diff:.2f}%)"
-                                )
-                                
-                                # If we found a very good match, break early
-                                if coupon_rate_diff < 0.2:
-                                    optimization_progress.update(
-                                        message=f"Found excellent match (diff < 0.2%), breaking early"
-                                    )
-                                    break
-        
-        # Final phase - preparing results
-        optimization_progress.update(step=95, phase="Finalizing Results", 
-                                    message="Preparing optimization results...")
-        
-        # If no solution was found that meets our criteria
-        if best_result is None:
-            # Fall back to classic optimization method rather than failing
-            optimization_progress.update(
-                message="Bayesian optimization couldn't find a solution matching the target coupon rate. Falling back to classic optimization method..."
-            )
-            
-            return perform_optimization(df, general_settings, optimization_settings)
-        
-        optimization_progress.update(
-            message=f"Bayesian optimization completed. Best coupon rate: {best_result['results']['class_b_coupon_rate']:.2f}% (target: {target_class_b_coupon_rate:.2f}%, diff: {best_coupon_rate_diff:.2f}%)"
-        )
-        
-        # Prepare the result - ensure maturities are integers
-        result = OptimizationResult(
-            best_strategy="bayesian",
-            class_a_maturities=[int(m) for m in best_maturities],
-            class_a_nominals=best_nominals,
-            class_a_rates=best_base_rates,
-            class_a_reinvest=best_reinvest_rates,
-            class_b_maturity=int(class_b_maturity),
-            class_b_rate=class_b_base_rate_orig,
-            class_b_reinvest=class_b_reinvest_rate_orig,
-            class_b_nominal=best_result.get('b_nominal', 0),
-            class_b_coupon_rate=best_result['results'].get('class_b_coupon_rate', 0),
-            min_buffer_actual=best_result['results'].get('min_buffer_actual', 0),
-            last_cash_flow_day=int(last_cash_flow_day),
-            additional_days=int(additional_days),
-            results_by_strategy={"bayesian": best_result['results']}
-        )
-        
-        # Final progress update
-        optimization_progress.update(step=100, 
-                                    message="Optimization completed successfully.")
-        
-        return result
-    except Exception as e:
-        # Log error, update progress, fall back to classic method
-        optimization_progress.update(
-            phase="Error Recovery",
-            message=f"Error during Bayesian optimization: {str(e)}. Falling back to classic method..."
-        )
-        logger.error(f"Bayesian optimization error: {str(e)}")
-        logger.debug(traceback.format_exc())
-        
-        return perform_optimization(df, general_settings, optimization_settings)
 
 def perform_genetic_optimization(df: pd.DataFrame, general_settings: GeneralSettings, optimization_settings: OptimizationSettings) -> OptimizationResult:
     """Genetic algorithm optimization
@@ -2182,8 +1387,8 @@ def perform_genetic_optimization(df: pd.DataFrame, general_settings: GeneralSett
         
         # Update to 75% progress
         optimization_progress.update(step=75, 
-                                   phase="Finalizing",
-                                   message="Evolution complete, preparing final results...")
+                                phase="Finalizing",
+                                message="Evolution complete, preparing final results...")
         
         # If no valid solution found
         if best_individual is None or best_fitness <= 0:
@@ -2209,7 +1414,7 @@ def perform_genetic_optimization(df: pd.DataFrame, general_settings: GeneralSett
         best_reinvest_rates = [maturity_to_reinvest_rate_A.get(get_nearest_maturity(m, original_maturities_A), 30.0) for m in best_maturities]
         
         optimization_progress.update(step=90, 
-                                   message="Creating optimization result...")
+                                message="Creating optimization result...")
         
         logger.info("Genetic optimization completed successfully")
         
@@ -2233,24 +1438,19 @@ def perform_genetic_optimization(df: pd.DataFrame, general_settings: GeneralSett
         
         # Final progress update to 100%
         optimization_progress.update(step=100, 
-                                   phase="Complete",
-                                   message="Genetic optimization completed successfully")
+                                phase="Complete",
+                                message="Genetic optimization completed successfully")
         
         return result
     except Exception as e:
-        # Log error and update progress
-        optimization_progress.update(
-            step=100,
-            phase="Error",
-            message=f"Error during genetic optimization: {str(e)}"
-        )
-        
-        # Detailed error logging
-        logger.error(f"Genetic optimization error: {str(e)}")
+        # Handle any exceptions
+        logger.error(f"Error in genetic optimization: {str(e)}")
         logger.debug(traceback.format_exc())
         
         # Fall back to classic optimization
         optimization_progress.update(
-            message="Falling back to classic optimization method..."
+            step=80,
+            phase="Error Recovery",
+            message=f"Error in genetic optimization: {str(e)}. Falling back to classic optimization method..."
         )
         return perform_optimization(df, general_settings, optimization_settings)
